@@ -1,0 +1,17 @@
+[project]
+name = "cspace"
+version = "0.0.0"
+requires-python = ">=3.10"
+license = {file = "LICENSE.txt"}
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+[tool.autoflake]
+in-place = true
+remove-all-unused-imports = true
+ignore-init-module-imports = true
+recursive = true
+[tool.black]
+target-version = ["py310"]
