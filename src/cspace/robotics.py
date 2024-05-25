@@ -74,6 +74,7 @@ class Prismatic(Joint):
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Description:
     description: str = dataclasses.field(repr=False)
+    chain: list = dataclasses.field(init=False)
     joint: tuple = dataclasses.field(init=False)
     link: dict = dataclasses.field(init=False)
 
@@ -185,10 +186,17 @@ class Description:
             else:
                 raise NotImplementedError(f_attribute(e, "type"))
 
-        def f_verify(joint, link):
-            assert link == set(
-                itertools.chain.from_iterable(map(lambda e: [e.child, e.parent], joint))
-            )
+        def f_chain(entry, joint):
+            chain = [entry]
+            while True:
+                lookup = [e.parent for e in joint if e.child == next(iter(chain))]
+                if len(lookup) == 0:
+                    break
+                assert len(lookup) == 1
+                lookup = next(iter(lookup))
+                assert lookup not in chain
+                chain = [lookup] + chain
+            return chain
 
         with xml.dom.minidom.parseString(self.description) as dom:
             joint = Joint.Collection(
@@ -201,7 +209,13 @@ class Description:
             )
             assert len(link) == dom.getElementsByTagName("link").length
 
-            f_verify(joint, link)
+            assert link == set(
+                itertools.chain.from_iterable(map(lambda e: [e.child, e.parent], joint))
+            )
 
+            chain = [f_chain(e, joint) for e in link]
+            assert len(set([next(iter(e)) for e in chain])) == 1
+
+            object.__setattr__(self, "chain", chain)
             object.__setattr__(self, "joint", joint)
             object.__setattr__(self, "link", link)

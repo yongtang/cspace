@@ -119,7 +119,6 @@ def test_description(device, urdf_file):
     }
     for name, joint in joints.items():
         assert description.joint(name) == joint
-
     assert len(joints) == len(description.joint)
 
     links = set(
@@ -142,5 +141,24 @@ def test_description(device, urdf_file):
             "box",
         ]
     )
-
     assert links == description.link
+
+    chains = [
+        ["base_link", "right_leg", "right_base", "right_back_wheel"],
+        ["base_link", "gripper_pole", "left_gripper", "left_tip"],
+        ["base_link", "right_leg", "right_base", "right_front_wheel"],
+        ["base_link", "left_leg"],
+        ["base_link", "right_leg"],
+        ["base_link", "gripper_pole", "right_gripper"],
+        ["base_link", "left_leg", "left_base", "left_front_wheel"],
+        ["base_link", "head"],
+        ["base_link", "gripper_pole", "left_gripper"],
+        ["base_link", "head", "box"],
+        ["base_link", "right_leg", "right_base"],
+        ["base_link"],
+        ["base_link", "left_leg", "left_base"],
+        ["base_link", "gripper_pole", "right_gripper", "right_tip"],
+        ["base_link", "left_leg", "left_base", "left_back_wheel"],
+        ["base_link", "gripper_pole"],
+    ]
+    assert sorted(chains) == sorted(description.chain)
