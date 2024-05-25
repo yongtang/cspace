@@ -121,3 +121,26 @@ def test_description(device, urdf_file):
         assert description.joint(name) == joint
 
     assert len(joints) == len(description.joint)
+
+    links = set(
+        [
+            "base_link",
+            "right_leg",
+            "right_base",
+            "right_front_wheel",
+            "right_back_wheel",
+            "left_leg",
+            "left_base",
+            "left_front_wheel",
+            "left_back_wheel",
+            "gripper_pole",
+            "left_gripper",
+            "left_tip",
+            "right_gripper",
+            "right_tip",
+            "head",
+            "box",
+        ]
+    )
+
+    assert links == description.link

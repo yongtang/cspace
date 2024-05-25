@@ -1,4 +1,5 @@
 import abc
+import itertools
 import dataclasses
 import xml.dom.minidom
 
@@ -74,6 +75,7 @@ class Prismatic(Joint):
 class Description:
     description: str = dataclasses.field(repr=False)
     joint: tuple = dataclasses.field(init=False)
+    link: dict = dataclasses.field(init=False)
 
     def __post_init__(self):
         def f_attribute(e, name):
@@ -183,8 +185,23 @@ class Description:
             else:
                 raise NotImplementedError(f_attribute(e, "type"))
 
+        def f_verify(joint, link):
+            assert link == set(
+                itertools.chain.from_iterable(map(lambda e: [e.child, e.parent], joint))
+            )
+
         with xml.dom.minidom.parseString(self.description) as dom:
             joint = Joint.Collection(
                 tuple(f_joint(e) for e in dom.getElementsByTagName("joint"))
             )
+            assert len(joint) == dom.getElementsByTagName("joint").length
+
+            link = set(
+                [f_attribute(e, "name") for e in dom.getElementsByTagName("link")]
+            )
+            assert len(link) == dom.getElementsByTagName("link").length
+
+            f_verify(joint, link)
+
             object.__setattr__(self, "joint", joint)
+            object.__setattr__(self, "link", link)
