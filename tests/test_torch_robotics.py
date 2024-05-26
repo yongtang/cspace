@@ -42,3 +42,54 @@ def test_spec(device, urdf_file):
     assert numpy.allclose(transform.xyz, xyz, atol=1e-4)
     assert numpy.allclose(transform.rpy, rpy, atol=1e-4)
     assert numpy.allclose(transform.qua, qua, atol=1e-4)
+
+    # continuous axis=(0, 1, 0)
+    joint = spec.joint("right_front_wheel_joint")
+
+    xyz = joint.origin.xyz
+    rpy = (0, 1, 0)
+    qua = scipy.spatial.transform.Rotation.from_euler("xyz", rpy).as_quat()
+
+    joint = cspace.robotics.torch.Joint(joint)
+
+    state = torch.tensor(1.0)
+
+    transform = joint(state)
+
+    assert numpy.allclose(transform.xyz, xyz, atol=1e-4)
+    assert numpy.allclose(transform.rpy, rpy, atol=1e-4)
+    assert numpy.allclose(transform.qua, qua, atol=1e-4)
+
+    # revolute axis=(0, 0, 1) limit=(0.0, 0.548)
+    joint = spec.joint("left_gripper_joint")
+
+    xyz = joint.origin.xyz
+    rpy = (0, 0, 0.548)
+    qua = scipy.spatial.transform.Rotation.from_euler("xyz", rpy).as_quat()
+
+    joint = cspace.robotics.torch.Joint(joint)
+
+    state = torch.tensor(1.0)
+
+    transform = joint(state)
+
+    assert numpy.allclose(transform.xyz, xyz, atol=1e-4)
+    assert numpy.allclose(transform.rpy, rpy, atol=1e-4)
+    assert numpy.allclose(transform.qua, qua, atol=1e-4)
+
+    # prismatic axis=(1, 0, 0) limit=(-0.38, 0)
+    joint = spec.joint("gripper_extension")
+
+    xyz = torch.as_tensor(joint.origin.xyz) + torch.as_tensor((-0.38, 0, 0))
+    rpy = joint.origin.rpy
+    qua = scipy.spatial.transform.Rotation.from_euler("xyz", rpy).as_quat()
+
+    joint = cspace.robotics.torch.Joint(joint)
+
+    state = torch.tensor(-1.0)
+
+    transform = joint(state)
+
+    assert numpy.allclose(transform.xyz, xyz, atol=1e-4)
+    assert numpy.allclose(transform.rpy, rpy, atol=1e-4)
+    assert numpy.allclose(transform.qua, qua, atol=1e-4)

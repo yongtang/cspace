@@ -1,3 +1,4 @@
+import cspace.robotics.classes
 import dataclasses
 import torch
 
@@ -36,6 +37,21 @@ def rpy_to_qua(rpy):
     return torch.stack((qx, qy, qz, qw), dim=-1)
 
 
+def qua_mul_qua(a, b):
+    ax, ay, az, aw = torch.unbind(a, dim=-1)
+    bx, by, bz, bw = torch.unbind(b, dim=-1)
+
+    ow = aw * bw - ax * bx - ay * by - az * bz
+    ox = aw * bx + ax * bw + ay * bz - az * by
+    oy = aw * by - ax * bz + ay * bw + az * bx
+    oz = aw * bz + ax * by - ay * bx + az * bw
+
+    qua = torch.stack((ox, oy, oz, ow), dim=-1)
+
+    # non-negative real part
+    return torch.where(qua[..., 3:] < 0, -qua, qua)
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Transform:
     xyz: torch.Tensor
@@ -45,6 +61,11 @@ class Transform:
     def rpy(self):
         return qua_to_rpy(self.qua)
 
+    def __mul__(self, other):
+        xyz = self.xyz + other.xyz
+        qua = qua_mul_qua(self.qua, other.qua)
+        return Transform(xyz=xyz, qua=qua)
+
 
 class Joint(torch.nn.Module):
     def __init__(self, spec):
@@ -52,7 +73,9 @@ class Joint(torch.nn.Module):
         self.spec = spec
 
     def forward(self, data):
-        shape = data.unsqueeze(-1).shape
+        data = data.unsqueeze(-1)
+
+        shape = data.shape
 
         xyz = torch.as_tensor(
             self.spec.origin.xyz,
@@ -64,4 +87,50 @@ class Joint(torch.nn.Module):
         )
         qua = rpy_to_qua(rpy)
 
-        return Transform(xyz=xyz.repeat(*shape), qua=qua.repeat(*shape))
+        transform = Transform(xyz=xyz.repeat(*shape), qua=qua.repeat(*shape))
+
+        if isinstance(
+            self.spec,
+            (
+                cspace.robotics.classes.Revolute,
+                cspace.robotics.classes.Prismatic,
+                cspace.robotics.classes.Continuous,
+            ),
+        ):
+            if isinstance(
+                self.spec,
+                (
+                    cspace.robotics.classes.Revolute,
+                    cspace.robotics.classes.Prismatic,
+                ),
+            ):
+                data = torch.clip(
+                    data, min=self.spec.limit.lower, max=self.spec.limit.upper
+                )
+
+            axis = torch.as_tensor(
+                self.spec.axis,
+                device=data.device,
+            )
+            data = torch.multiply(data, axis)
+            if isinstance(
+                self.spec,
+                (
+                    cspace.robotics.classes.Revolute,
+                    cspace.robotics.classes.Continuous,
+                ),
+            ):
+                xyz = torch.as_tensor(
+                    (0.0, 0.0, 0.0),
+                    device=data.device,
+                ).repeat(*shape)
+                qua = rpy_to_qua(data)
+            else:
+                xyz = data
+                qua = torch.as_tensor(
+                    (0.0, 0.0, 0.0, 1.0),
+                    device=data.device,
+                ).repeat(*shape)
+            transform = transform * Transform(xyz=xyz, qua=qua)
+
+        return transform
