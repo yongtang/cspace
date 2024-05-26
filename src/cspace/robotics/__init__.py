@@ -2,77 +2,11 @@ import abc
 import itertools
 import dataclasses
 import xml.dom.minidom
-
-
-@dataclasses.dataclass(init=False, frozen=True, repr=False)
-class Joint(abc.ABC):
-    name: str
-    child: str
-    parent: str
-    origin: tuple[float, float, float, float, float, float]
-
-    def __repr__(self):
-        raise NotImplementedError
-
-    @dataclasses.dataclass(kw_only=True, frozen=True, repr=False)
-    class Limit:
-        lower: float
-        upper: float
-        effort: float
-        velocity: float
-
-        def __repr__(self):
-            return f"(lower={self.lower}, upper={self.upper}, effort={self.effort}, velocity={self.velocity})"
-
-    class Collection(tuple):
-        def __new__(cls, items):
-            items = tuple([item for item in items])
-            assert all(
-                map(
-                    lambda e: isinstance(e, Joint),
-                    items,
-                )
-            ), f"{items}"
-            return super().__new__(cls, items)
-
-        def __call__(self, name):
-            return next(filter(lambda item: item.name == name, self))
-
-
-@dataclasses.dataclass(kw_only=True, frozen=True)
-class Fixed(Joint):
-    def __post_init__(self):
-        pass
-
-
-@dataclasses.dataclass(kw_only=True, frozen=True)
-class Revolute(Joint):
-    axis: tuple[int, int, int]
-    limit: Joint.Limit
-
-    def __post_init__(self):
-        assert self.limit is not None
-
-
-@dataclasses.dataclass(kw_only=True, frozen=True)
-class Continuous(Joint):
-    axis: tuple[int, int, int]
-
-    def __post_init__(self):
-        pass
-
-
-@dataclasses.dataclass(kw_only=True, frozen=True)
-class Prismatic(Joint):
-    axis: tuple[int, int, int]
-    limit: Joint.Limit
-
-    def __post_init__(self):
-        assert self.limit is not None
+from . import classes
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class Description:
+class Spec:
     description: str = dataclasses.field(repr=False)
     chain: list = dataclasses.field(init=False)
     joint: tuple = dataclasses.field(init=False)
@@ -133,7 +67,7 @@ class Description:
             upper = float(upper if upper else "0")
             effort = float(effort)
             velocity = float(velocity)
-            return Joint.Limit(
+            return classes.Attribute.Limit(
                 lower=lower, upper=upper, effort=effort, velocity=velocity
             )
 
@@ -151,14 +85,14 @@ class Description:
             limit = f_limit(e)
             mimic = f_mimic(e)
             if f_attribute(e, "type") == "fixed":
-                return Fixed(
+                return classes.Fixed(
                     name=name,
                     child=child,
                     parent=parent,
                     origin=origin,
                 )
             elif f_attribute(e, "type") == "revolute":
-                return Revolute(
+                return classes.Revolute(
                     name=name,
                     child=child,
                     parent=parent,
@@ -167,7 +101,7 @@ class Description:
                     limit=limit,
                 )
             elif f_attribute(e, "type") == "continuous":
-                return Continuous(
+                return classes.Continuous(
                     name=name,
                     child=child,
                     parent=parent,
@@ -175,7 +109,7 @@ class Description:
                     axis=axis,
                 )
             elif f_attribute(e, "type") == "prismatic":
-                return Prismatic(
+                return classes.Prismatic(
                     name=name,
                     child=child,
                     parent=parent,
@@ -199,14 +133,14 @@ class Description:
             return chain
 
         with xml.dom.minidom.parseString(self.description) as dom:
-            joint = Joint.Collection(
+            joint = classes.Collection(
                 tuple(f_joint(e) for e in dom.getElementsByTagName("joint"))
             )
             assert len(joint) == dom.getElementsByTagName("joint").length
 
-            link = set(
-                [f_attribute(e, "name") for e in dom.getElementsByTagName("link")]
-            )
+            link = {
+                f_attribute(e, "name") for e in dom.getElementsByTagName("link")
+            }
             assert len(link) == dom.getElementsByTagName("link").length
 
             assert link == set(
@@ -214,7 +148,7 @@ class Description:
             )
 
             chain = [f_chain(e, joint) for e in link]
-            assert len(set([next(iter(e)) for e in chain])) == 1
+            assert len({next(iter(e)) for e in chain}) == 1
 
             object.__setattr__(self, "chain", chain)
             object.__setattr__(self, "joint", joint)
