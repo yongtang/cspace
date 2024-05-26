@@ -36,10 +36,10 @@ class Spec:
             )
             xyz = xyz if xyz else "0 0 0"
             rpy = rpy if rpy else "0 0 0"
-            xyz = [float(e) for e in xyz.split(" ")]
-            rpy = [float(e) for e in rpy.split(" ")]
+            xyz = tuple(float(e) for e in xyz.split(" "))
+            rpy = tuple(float(e) for e in rpy.split(" "))
             assert len(xyz) == 3 and len(rpy) == 3
-            return tuple(xyz + rpy)
+            return classes.Attribute.Origin(xyz=xyz, rpy=rpy)
 
         def f_axis(e):
             entries = e.getElementsByTagName("axis")
@@ -138,9 +138,7 @@ class Spec:
             )
             assert len(joint) == dom.getElementsByTagName("joint").length
 
-            link = {
-                f_attribute(e, "name") for e in dom.getElementsByTagName("link")
-            }
+            link = {f_attribute(e, "name") for e in dom.getElementsByTagName("link")}
             assert len(link) == dom.getElementsByTagName("link").length
 
             assert link == set(

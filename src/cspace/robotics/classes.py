@@ -13,13 +13,21 @@ class Attribute:
         def __repr__(self):
             return f"(lower={self.lower}, upper={self.upper}, effort={self.effort}, velocity={self.velocity})"
 
+    @dataclasses.dataclass(kw_only=True, frozen=True, repr=False)
+    class Origin:
+        xyz: [float, float, float]
+        rpy: [float, float, float]
+
+        def __repr__(self):
+            return f"(xyz={self.xyz}, rpy={self.rpy})"
+
 
 @dataclasses.dataclass(init=False, frozen=True, repr=False)
 class Joint(abc.ABC):
     name: str
     child: str
     parent: str
-    origin: tuple[float, float, float, float, float, float]
+    origin: Attribute.Origin
 
     def __repr__(self):
         raise NotImplementedError
