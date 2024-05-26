@@ -65,12 +65,39 @@ class Prismatic(Joint):
         assert self.limit is not None
 
 
-class Collection(tuple):
+class JointCollection(tuple):
     def __new__(cls, items):
-        items = tuple([item for item in items])
+        items = tuple(item for item in items)
         assert all(
             map(
-                lambda e: isinstance(e, Joint),
+                lambda item: isinstance(item, Joint),
+                items,
+            )
+        ), f"{items}"
+        return super().__new__(cls, items)
+
+    def __call__(self, name):
+        return next(filter(lambda item: item.name == name, self))
+
+
+class Chain(tuple):
+    def __new__(cls, items):
+        items = tuple(item for item in items)
+        assert all(
+            map(
+                lambda item: isinstance(item, str),
+                items,
+            )
+        ), f"{items}"
+        return super().__new__(cls, items)
+
+
+class ChainCollection(tuple):
+    def __new__(cls, items):
+        items = tuple(item for item in items)
+        assert all(
+            map(
+                lambda item: isinstance(item, Chain),
                 items,
             )
         ), f"{items}"

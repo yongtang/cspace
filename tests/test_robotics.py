@@ -1,6 +1,7 @@
 import cspace.robotics
 
 import pathlib
+import logging
 
 
 def test_spec(device, urdf_file):
@@ -182,24 +183,67 @@ def test_spec(device, urdf_file):
         "head",
         "box",
     }
-    assert links == spec.link
+    assert links == {item[-1] for item in spec.chain}
 
     chains = [
-        ["base_link", "right_leg", "right_base", "right_back_wheel"],
-        ["base_link", "gripper_pole", "left_gripper", "left_tip"],
-        ["base_link", "right_leg", "right_base", "right_front_wheel"],
-        ["base_link", "left_leg"],
-        ["base_link", "right_leg"],
-        ["base_link", "gripper_pole", "right_gripper"],
-        ["base_link", "left_leg", "left_base", "left_front_wheel"],
-        ["base_link", "head"],
-        ["base_link", "gripper_pole", "left_gripper"],
-        ["base_link", "head", "box"],
-        ["base_link", "right_leg", "right_base"],
-        ["base_link"],
-        ["base_link", "left_leg", "left_base"],
-        ["base_link", "gripper_pole", "right_gripper", "right_tip"],
-        ["base_link", "left_leg", "left_base", "left_back_wheel"],
-        ["base_link", "gripper_pole"],
+        tuple(["base_link", "right_leg", "right_base", "right_back_wheel"]),
+        tuple(["base_link", "gripper_pole", "left_gripper", "left_tip"]),
+        tuple(["base_link", "right_leg", "right_base", "right_front_wheel"]),
+        tuple(["base_link", "left_leg"]),
+        tuple(["base_link", "right_leg"]),
+        tuple(["base_link", "gripper_pole", "right_gripper"]),
+        tuple(["base_link", "left_leg", "left_base", "left_front_wheel"]),
+        tuple(["base_link", "head"]),
+        tuple(["base_link", "gripper_pole", "left_gripper"]),
+        tuple(["base_link", "head", "box"]),
+        tuple(["base_link", "right_leg", "right_base"]),
+        tuple(["base_link"]),
+        tuple(["base_link", "left_leg", "left_base"]),
+        tuple(["base_link", "gripper_pole", "right_gripper", "right_tip"]),
+        tuple(["base_link", "left_leg", "left_base", "left_back_wheel"]),
+        tuple(["base_link", "gripper_pole"]),
     ]
     assert sorted(chains) == sorted(spec.chain)
+
+    def lookup(joints, source, target):
+        for name, joint in joints.items():
+            if joint.parent == source and joint.child == target:
+                return (name, True)
+            elif joint.parent == target and joint.child == source:
+                return (name, False)
+
+    for source in links:
+        for target in links:
+            source_chain = tuple(
+                reversed(next(filter(lambda item: item[-1] == source, chains)))
+            )
+            target_chain = next(filter(lambda item: item[-1] == target, chains))[1:]
+            route = source_chain + target_chain
+            forward_route = route[: route.index(target) + 1]
+            reverse_route = route[
+                len(route) - 1 - list(reversed(route)).index(source) :
+            ]
+            final_route = (
+                forward_route
+                if len(forward_route) <= len(reverse_route)
+                else reverse_route
+            )
+            joint_route = [
+                lookup(joints, final_route[i - 1], final_route[i])
+                for i in range(1, len(final_route))
+            ]
+            logging.getLogger(__name__).info(
+                "".join(
+                    [
+                        f"\n",
+                        f"\n----------------------------------------",
+                        f"\n[{source} => {target}]",
+                        f"\nROUTE: {route}",
+                        f"\nFINAL: {final_route}",
+                        f"\nJOINT: {[(name, joints[name].parent, joints[name].child, 'forward' if forward else 'inverse') for name, forward in joint_route]}",
+                        f"\n----------------------------------------",
+                        f"\n",
+                    ]
+                )
+            )
+            assert joint_route == spec.route(source, target)

@@ -1,5 +1,6 @@
 import abc
 import itertools
+import functools
 import dataclasses
 import xml.dom.minidom
 from . import classes
@@ -8,9 +9,8 @@ from . import classes
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Spec:
     description: str = dataclasses.field(repr=False)
-    chain: list = dataclasses.field(init=False)
-    joint: tuple = dataclasses.field(init=False)
-    link: dict = dataclasses.field(init=False)
+    chain: classes.ChainCollection = dataclasses.field(init=False)
+    joint: classes.JointCollection = dataclasses.field(init=False)
 
     def __post_init__(self):
         def f_attribute(e, name):
@@ -133,7 +133,7 @@ class Spec:
             return chain
 
         with xml.dom.minidom.parseString(self.description) as dom:
-            joint = classes.Collection(
+            joint = classes.JointCollection(
                 tuple(f_joint(e) for e in dom.getElementsByTagName("joint"))
             )
             assert len(joint) == dom.getElementsByTagName("joint").length
@@ -145,9 +145,43 @@ class Spec:
                 itertools.chain.from_iterable(map(lambda e: [e.child, e.parent], joint))
             )
 
-            chain = [f_chain(e, joint) for e in link]
+            chain = classes.ChainCollection(
+                [classes.Chain(f_chain(e, joint)) for e in link]
+            )
             assert len({next(iter(e)) for e in chain}) == 1
 
-            object.__setattr__(self, "chain", chain)
             object.__setattr__(self, "joint", joint)
-            object.__setattr__(self, "link", link)
+            object.__setattr__(self, "chain", chain)
+
+    @functools.cache
+    def route(self, source, target):
+        @functools.lru_cache
+        def f_route(chain, source, target):
+            source_chain = tuple(
+                reversed(next(filter(lambda item: item[-1] == source, chain)))
+            )
+            target_chain = next(filter(lambda item: item[-1] == target, chain))[1:]
+            return source_chain + target_chain
+
+        @functools.lru_cache
+        def f_lookup(joint, source, target):
+            for item in joint:
+                if item.parent == source and item.child == target:
+                    return (item.name, True)
+                elif item.parent == target and item.child == source:
+                    return (item.name, False)
+
+        route_chain = f_route(self.chain, source, target)
+
+        route_forward = route_chain[: route_chain.index(target) + 1]
+        route_inverse = route_chain[
+            len(route_chain) - 1 - list(reversed(route_chain)).index(source) :
+        ]
+        route_final = (
+            route_forward if len(route_forward) <= len(route_inverse) else route_inverse
+        )
+
+        return [
+            f_lookup(self.joint, route_final[i - 1], route_final[i])
+            for i in range(1, len(route_final))
+        ]
