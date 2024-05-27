@@ -1,5 +1,5 @@
-import cspace.robotics
-import cspace.robotics.torch
+import cspace.torch
+import cspace.torch.ops
 
 import pathlib
 import numpy
@@ -9,7 +9,7 @@ import torch
 
 def test_rpy_qua(device):
     rpy = (1.5707, 0, -1.5707)
-    val = cspace.robotics.torch.rpy_to_qua(torch.as_tensor(rpy, device=device))
+    val = cspace.torch.ops.rpy_to_qua(torch.as_tensor(rpy, device=device))
 
     qua = scipy.spatial.transform.Rotation.from_euler("xyz", rpy).as_quat()
     assert numpy.allclose(val, qua, atol=1e-4)
@@ -17,7 +17,7 @@ def test_rpy_qua(device):
     qua = (0.5000, -0.5000, -0.5000, 0.5000)
     assert numpy.allclose(val, qua, atol=1e-4)
 
-    val = cspace.robotics.torch.qua_to_rpy(val)
+    val = cspace.torch.ops.qua_to_rpy(val)
     assert numpy.allclose(val, rpy, atol=1e-4)
 
     rpy = scipy.spatial.transform.Rotation.from_quat(qua).as_euler("xyz")
@@ -25,7 +25,7 @@ def test_rpy_qua(device):
 
 
 def test_spec(device, urdf_file):
-    spec = cspace.robotics.Spec(description=pathlib.Path(urdf_file).read_text())
+    spec = cspace.torch.Spec(description=pathlib.Path(urdf_file).read_text())
 
     joint = spec.joint("base_to_right_leg")
 
@@ -33,11 +33,9 @@ def test_spec(device, urdf_file):
     rpy = joint.origin.rpy
     qua = scipy.spatial.transform.Rotation.from_euler("xyz", rpy).as_quat()
 
-    joint = cspace.robotics.torch.Joint(joint)
-
     state = torch.tensor(1.0)
 
-    transform = joint(state)
+    transform = joint.transform(state)
 
     assert numpy.allclose(transform.xyz, xyz, atol=1e-4)
     assert numpy.allclose(transform.rpy, rpy, atol=1e-4)
@@ -50,11 +48,9 @@ def test_spec(device, urdf_file):
     rpy = (0, 1, 0)
     qua = scipy.spatial.transform.Rotation.from_euler("xyz", rpy).as_quat()
 
-    joint = cspace.robotics.torch.Joint(joint)
-
     state = torch.tensor(1.0)
 
-    transform = joint(state)
+    transform = joint.transform(state)
 
     assert numpy.allclose(transform.xyz, xyz, atol=1e-4)
     assert numpy.allclose(transform.rpy, rpy, atol=1e-4)
@@ -67,11 +63,9 @@ def test_spec(device, urdf_file):
     rpy = (0, 0, 0.548)
     qua = scipy.spatial.transform.Rotation.from_euler("xyz", rpy).as_quat()
 
-    joint = cspace.robotics.torch.Joint(joint)
-
     state = torch.tensor(1.0)
 
-    transform = joint(state)
+    transform = joint.transform(state)
 
     assert numpy.allclose(transform.xyz, xyz, atol=1e-4)
     assert numpy.allclose(transform.rpy, rpy, atol=1e-4)
@@ -84,11 +78,9 @@ def test_spec(device, urdf_file):
     rpy = joint.origin.rpy
     qua = scipy.spatial.transform.Rotation.from_euler("xyz", rpy).as_quat()
 
-    joint = cspace.robotics.torch.Joint(joint)
-
     state = torch.tensor(-1.0)
 
-    transform = joint(state)
+    transform = joint.transform(state)
 
     assert numpy.allclose(transform.xyz, xyz, atol=1e-4)
     assert numpy.allclose(transform.rpy, rpy, atol=1e-4)

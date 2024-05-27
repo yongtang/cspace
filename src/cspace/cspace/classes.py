@@ -3,14 +3,122 @@ import itertools
 import functools
 import dataclasses
 import xml.dom.minidom
-from . import classes
+
+
+class Attribute:
+    @dataclasses.dataclass(kw_only=True, frozen=True, repr=False)
+    class Limit:
+        lower: float
+        upper: float
+        effort: float
+        velocity: float
+
+        def __repr__(self):
+            return f"(lower={self.lower}, upper={self.upper}, effort={self.effort}, velocity={self.velocity})"
+
+    @dataclasses.dataclass(kw_only=True, frozen=True, repr=False)
+    class Origin:
+        xyz: [float, float, float]
+        rpy: [float, float, float]
+
+        def __repr__(self):
+            return f"(xyz={self.xyz}, rpy={self.rpy})"
+
+
+@dataclasses.dataclass(init=False, frozen=True, repr=False)
+class Joint(abc.ABC):
+    name: str
+    child: str
+    parent: str
+    origin: Attribute.Origin
+
+    def transform(self, data):
+        raise NotImplementedError
+
+    def __repr__(self):
+        raise NotImplementedError
+
+
+@dataclasses.dataclass(kw_only=True, frozen=True)
+class Fixed(Joint):
+    def __post_init__(self):
+        pass
+
+
+@dataclasses.dataclass(kw_only=True, frozen=True)
+class Revolute(Joint):
+    axis: tuple[int, int, int]
+    limit: Attribute.Limit
+
+    def __post_init__(self):
+        assert self.limit is not None
+
+
+@dataclasses.dataclass(kw_only=True, frozen=True)
+class Continuous(Joint):
+    axis: tuple[int, int, int]
+
+    def __post_init__(self):
+        pass
+
+
+@dataclasses.dataclass(kw_only=True, frozen=True)
+class Prismatic(Joint):
+    axis: tuple[int, int, int]
+    limit: Attribute.Limit
+
+    def __post_init__(self):
+        assert self.limit is not None
+
+
+class JointCollection(tuple):
+    def __new__(cls, items):
+        items = tuple(item for item in items)
+        assert all(
+            map(
+                lambda item: isinstance(item, Joint),
+                items,
+            )
+        ), f"{items}"
+        return super().__new__(cls, items)
+
+    @functools.cache
+    def __call__(self, name):
+        return next(filter(lambda item: item.name == name, self))
+
+
+class Chain(tuple):
+    def __new__(cls, items):
+        items = tuple(item for item in items)
+        assert all(
+            map(
+                lambda item: isinstance(item, str),
+                items,
+            )
+        ), f"{items}"
+        return super().__new__(cls, items)
+
+
+class ChainCollection(tuple):
+    def __new__(cls, items):
+        items = tuple(item for item in items)
+        assert all(
+            map(
+                lambda item: isinstance(item, Chain),
+                items,
+            )
+        ), f"{items}"
+        return super().__new__(cls, items)
+
+    def __call__(self, name):
+        return next(filter(lambda item: item.name == name, self))
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Spec:
     description: str = dataclasses.field(repr=False)
-    chain: classes.ChainCollection = dataclasses.field(init=False)
-    joint: classes.JointCollection = dataclasses.field(init=False)
+    chain: ChainCollection = dataclasses.field(init=False)
+    joint: JointCollection = dataclasses.field(init=False)
 
     def __post_init__(self):
         def f_attribute(e, name):
@@ -39,7 +147,7 @@ class Spec:
             xyz = tuple(float(e) for e in xyz.split(" "))
             rpy = tuple(float(e) for e in rpy.split(" "))
             assert len(xyz) == 3 and len(rpy) == 3
-            return classes.Attribute.Origin(xyz=xyz, rpy=rpy)
+            return Attribute.Origin(xyz=xyz, rpy=rpy)
 
         def f_axis(e):
             entries = e.getElementsByTagName("axis")
@@ -67,7 +175,7 @@ class Spec:
             upper = float(upper if upper else "0")
             effort = float(effort)
             velocity = float(velocity)
-            return classes.Attribute.Limit(
+            return Attribute.Limit(
                 lower=lower, upper=upper, effort=effort, velocity=velocity
             )
 
@@ -85,14 +193,14 @@ class Spec:
             limit = f_limit(e)
             mimic = f_mimic(e)
             if f_attribute(e, "type") == "fixed":
-                return classes.Fixed(
+                return Fixed(
                     name=name,
                     child=child,
                     parent=parent,
                     origin=origin,
                 )
             elif f_attribute(e, "type") == "revolute":
-                return classes.Revolute(
+                return Revolute(
                     name=name,
                     child=child,
                     parent=parent,
@@ -101,7 +209,7 @@ class Spec:
                     limit=limit,
                 )
             elif f_attribute(e, "type") == "continuous":
-                return classes.Continuous(
+                return Continuous(
                     name=name,
                     child=child,
                     parent=parent,
@@ -109,7 +217,7 @@ class Spec:
                     axis=axis,
                 )
             elif f_attribute(e, "type") == "prismatic":
-                return classes.Prismatic(
+                return Prismatic(
                     name=name,
                     child=child,
                     parent=parent,
@@ -133,7 +241,7 @@ class Spec:
             return chain
 
         with xml.dom.minidom.parseString(self.description) as dom:
-            joint = classes.JointCollection(
+            joint = JointCollection(
                 tuple(f_joint(e) for e in dom.getElementsByTagName("joint"))
             )
             assert len(joint) == dom.getElementsByTagName("joint").length
@@ -145,9 +253,7 @@ class Spec:
                 itertools.chain.from_iterable(map(lambda e: [e.child, e.parent], joint))
             )
 
-            chain = classes.ChainCollection(
-                [classes.Chain(f_chain(e, joint)) for e in link]
-            )
+            chain = ChainCollection([Chain(f_chain(e, joint)) for e in link])
             assert len({next(iter(e)) for e in chain}) == 1
 
             object.__setattr__(self, "joint", joint)
