@@ -85,3 +85,8 @@ def test_spec(device, urdf_file):
     assert numpy.allclose(transform.xyz, xyz, atol=1e-4)
     assert numpy.allclose(transform.rpy, rpy, atol=1e-4)
     assert numpy.allclose(transform.qua, qua, atol=1e-4)
+
+
+def test_kinematics(device, urdf_file):
+    spec = cspace.torch.Spec(description=pathlib.Path(urdf_file).read_text())
+    kinematics = spec.kinematics()

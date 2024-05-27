@@ -111,7 +111,7 @@ class ChainCollection(tuple):
         return super().__new__(cls, items)
 
     def __call__(self, name):
-        return next(filter(lambda item: item.name == name, self))
+        return next(filter(lambda item: item[-1] == name, self))
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -291,3 +291,23 @@ class Spec:
             f_lookup(self.joint, route_final[i - 1], route_final[i])
             for i in range(1, len(route_final))
         ]
+
+    def kinematics(self, *link, base=None):
+        link = tuple(link)
+        base = base if base else next(iter(self.chain))[0]
+        assert self.chain(base)
+        assert all(self.chain(item) for item in link)
+        return Kinematics(spec=self, base=base, link=link)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class Kinematics:
+    spec: Spec
+    base: str
+    link: tuple[str]
+
+    def forward(self, data):
+        raise NotImplementedError
+
+    def inverse(self, data):
+        raise NotImplementedError
