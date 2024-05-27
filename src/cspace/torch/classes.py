@@ -91,6 +91,4 @@ class Spec(cspace.cspace.classes.Spec):
             return transform
 
         for joint in self.joint:
-            object.__setattr__(
-                joint, "transform", functools.partial(f_transform, joint)
-            )
+            object.__setattr__(joint, "function", f_transform)

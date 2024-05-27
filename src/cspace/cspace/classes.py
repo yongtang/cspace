@@ -1,4 +1,5 @@
 import abc
+import typing
 import itertools
 import functools
 import dataclasses
@@ -31,9 +32,12 @@ class Joint(abc.ABC):
     child: str
     parent: str
     origin: Attribute.Origin
+    function: typing.Callable | None = None
 
     def transform(self, data):
-        raise NotImplementedError
+        if self.function is None:
+            raise NotImplementedError
+        return self.function(self, data)
 
     def __repr__(self):
         raise NotImplementedError
