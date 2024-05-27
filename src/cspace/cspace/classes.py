@@ -293,10 +293,10 @@ class Spec:
         ]
 
     def kinematics(self, *link, base=None):
-        link = tuple(link)
+        link = tuple(link) if link else tuple(item[-1] for item in self.chain)
         base = base if base else next(iter(self.chain))[0]
         assert self.chain(base)
-        assert all(self.chain(item) for item in link)
+        assert all([self.chain(item) for item in link])
         return Kinematics(spec=self, base=base, link=link)
 
 

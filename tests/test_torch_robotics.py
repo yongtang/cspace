@@ -89,4 +89,4 @@ def test_spec(device, urdf_file):
 
 def test_kinematics(device, urdf_file):
     spec = cspace.torch.Spec(description=pathlib.Path(urdf_file).read_text())
-    kinematics = spec.kinematics()
+    kinematics = spec.kinematics("left_gripper")
