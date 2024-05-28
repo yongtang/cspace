@@ -133,7 +133,7 @@ class Spec(cspace.cspace.classes.Spec):
                 operator.mul,
                 [
                     f_transform(spec, data, name, forward)
-                    for name, forward in spec.route(link, base)
+                    for name, forward in reversed(spec.route(link, base))
                 ],
                 Transform(
                     data=torch.as_tensor(

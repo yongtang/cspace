@@ -62,21 +62,29 @@ def link_pose(urdf_file):
 
     poses = {
         "base_link": [0, 0, 0, 0, 0, 0, 1],
+        "box": [0.18012, 0.021491, 0.4414, 0, 0, 0.059341, 0.99824],
+        "gripper_pole": [0.16123, 0, 0.2, 0, 0, 0, 1],
+        "head": [0, 0, 0.3, 0, 0, 0.059341, 0.99824],
+        "left_back_wheel": [-0.13333, 0.22, -0.435, 0, -0.24382, 0, 0.96982],
+        "left_base": [0, 0.22, -0.35, 0, 0, 0, 1],
+        "left_front_wheel": [0.13333, 0.22, -0.435, 0, -0.21078, 0, 0.97753],
+        "left_gripper": [0.36123, 0.01, 0.2, 0, 0, 0.12557, 0.99208],
+        "left_leg": [0, 0.22, 0.25, 0, 0, 0, 1],
+        "left_tip": [0.36123, 0.01, 0.2, 0, 0, 0.12557, 0.99208],
+        "right_back_wheel": [-0.13333, -0.22, -0.435, 0, -0.27658, 0, 0.96099],
         "right_base": [0, -0.22, -0.35, 0, 0, 0, 1],
+        "right_front_wheel": [0.13333, -0.22, -0.435, 0, -0.09317, 0, 0.99565],
         "right_gripper": [0.36123, -0.01, 0.2, 0, 0, -0.13584, 0.99073],
         "right_leg": [0, -0.22, 0.25, 0, 0, 0, 1],
         "right_tip": [0.36123, -0.01, 0.2, 0, 0, -0.13584, 0.99073],
     }
-    poses = dict((k, [float(e) for e in v]) for k, v in poses.items())
-    return dict(
-        (
-            k,
-            PoseStamped(
-                Pose(
-                    Point(*v[:3]),
-                    Quaternion(*v[3:]),
-                )
-            ),
+    poses = {k: [float(e) for e in v] for k, v in poses.items()}
+    return {
+        k: PoseStamped(
+            Pose(
+                Point(*v[:3]),
+                Quaternion(*v[3:]),
+            )
         )
         for k, v in poses.items()
-    )
+    }

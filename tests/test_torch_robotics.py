@@ -1,31 +1,62 @@
+import pytest
+
 import cspace.torch
 import cspace.torch.ops
 
+import transforms3d
 import pathlib
 import numpy
 import scipy
 import torch
 
 
-def test_ops(device):
-    val = torch.as_tensor((0.5000, -0.5000, -0.5000, 0.5000), device=device)
-    sci = scipy.spatial.transform.Rotation.from_quat(val)
+@pytest.mark.parametrize("angle_r", list(range(-180, 180, 30)))
+@pytest.mark.parametrize("angle_p", list(range(-180, 180, 30)))
+@pytest.mark.parametrize("angle_y", list(range(-180, 180, 30)))
+def test_ops(angle_r, angle_p, angle_y, device):
+    def t3d_rpy_to_qua(rpy):
+        qw, qx, qy, qz = transforms3d.euler.euler2quat(rpy[0], rpy[1], rpy[2])
+        return [qx, qy, qz, qw]
 
-    rpy = cspace.torch.ops.qua_to_rpy(val)
-    assert numpy.allclose(rpy, sci.as_euler("xyz"), atol=1e-4)
-    assert numpy.allclose(rpy, (1.5707, 0, -1.5707), atol=1e-4)
+    def t3d_qua_to_rot(qua):
+        qx, qy, qz, qw = qua
+        return transforms3d.euler.quat2mat([qw, qx, qy, qz])
+
+    def t3d_rot_to_rpy(rot):
+        return transforms3d.euler.mat2euler(rot)
+
+    def t3d_qua_to_rpy(qua):
+        qx, qy, qz, qw = qua
+        return transforms3d.euler.quat2euler([qw, qx, qy, qz])
+
+    def t3d_rpy_to_rot(rpy):
+        return transforms3d.euler.euler2mat(rpy[0], rpy[1], rpy[2])
+
+    def t3d_rot_to_rpy(rot):
+        return transforms3d.euler.mat2euler(rot)
+
+    def t3d_rot_to_qua(rot):
+        rot = numpy.array(rot)
+        qw, qx, qy, qz = transforms3d.quaternions.mat2quat(rot)
+        return [qx, qy, qz, qw]
+
+    rpy = scipy.special.radian((angle_r, angle_p, angle_y), 0, 0)
+    rpy = torch.as_tensor(rpy, dtype=torch.float64)
+
+    rot = cspace.torch.ops.rpy_to_rot(rpy)
+    assert numpy.allclose(rot, t3d_rpy_to_rot(rpy), atol=1e-4)
+
+    val = cspace.torch.ops.rot_to_rpy(rot)
+    assert numpy.allclose(val, t3d_rot_to_rpy(rot), atol=1e-4)
 
     qua = cspace.torch.ops.rpy_to_qua(rpy)
-    assert numpy.allclose(qua, sci.as_quat(), atol=1e-4)
-    assert numpy.allclose(qua, (0.5000, -0.5000, -0.5000, 0.5000), atol=1e-4)
+    assert numpy.allclose(qua, t3d_rpy_to_qua(rpy), atol=1e-4)
 
     rot = cspace.torch.ops.qua_to_rot(qua)
-    assert numpy.allclose(rot, sci.as_matrix(), atol=1e-4)
-    assert numpy.allclose(rot, [[0, 0, -1], [-1, 0, 0], [0, 1, 0]], atol=1e-4)
+    assert numpy.allclose(rot, t3d_qua_to_rot(qua), atol=1e-4)
 
     qua = cspace.torch.ops.rot_to_qua(rot)
-    assert numpy.allclose(qua, sci.as_quat(), atol=1e-4)
-    assert numpy.allclose(qua, (0.5000, -0.5000, -0.5000, 0.5000), atol=1e-4)
+    assert numpy.allclose(qua, t3d_rot_to_qua(rot), atol=1e-4)
 
 
 def test_spec(device, urdf_file):
@@ -114,7 +145,7 @@ def test_transform(device, urdf_file, joint_state, link_pose):
                     link_pose[link].pose.orientation.w,
                 ]
             ).unsqueeze(-2)
-            assert numpy.allclose(true, data, atol=5e-2)
+            assert numpy.allclose(true, data, atol=1e-4)
 
 
 def test_kinematics(device, urdf_file):
