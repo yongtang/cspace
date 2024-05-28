@@ -207,9 +207,9 @@ def test_spec(device, urdf_file):
 
     def lookup(joints, source, target):
         for name, joint in joints.items():
-            if joint.parent == source and joint.child == target:
+            if joint.parent == target and joint.child == source:
                 return (name, True)
-            elif joint.parent == target and joint.child == source:
+            elif joint.parent == source and joint.child == target:
                 return (name, False)
 
     for source in links:

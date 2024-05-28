@@ -87,6 +87,14 @@ class JointCollection(tuple):
         return super().__new__(cls, items)
 
     @functools.cache
+    def index(self, name):
+        @functools.cache
+        def f_name(self):
+            return list(item.name for item in self)
+
+        return f_name(self).index(name)
+
+    @functools.cache
     def __call__(self, name):
         return next(filter(lambda item: item.name == name, self))
 
@@ -123,6 +131,7 @@ class Spec:
     description: str = dataclasses.field(repr=False)
     chain: ChainCollection = dataclasses.field(init=False)
     joint: JointCollection = dataclasses.field(init=False)
+    function: typing.Callable | None = None
 
     def __post_init__(self):
         def f_attribute(e, name):
@@ -264,7 +273,7 @@ class Spec:
             object.__setattr__(self, "chain", chain)
 
     @functools.cache
-    def route(self, source, target):
+    def route(self, source, target=None):
         @functools.lru_cache
         def f_route(chain, source, target):
             source_chain = tuple(
@@ -277,9 +286,11 @@ class Spec:
         def f_lookup(joint, source, target):
             for item in joint:
                 if item.parent == source and item.child == target:
-                    return (item.name, True)
-                elif item.parent == target and item.child == source:
                     return (item.name, False)
+                elif item.parent == target and item.child == source:
+                    return (item.name, True)
+
+        target = target if target else next(iter(self.chain))[0]
 
         route_chain = f_route(self.chain, source, target)
 
@@ -296,6 +307,11 @@ class Spec:
             for i in range(1, len(route_final))
         ]
 
+    def forward(self, data, *link, base=None):  # [..., joint]
+        if self.function is None:
+            raise NotImplementedError
+        return self.function(self, data, *link, base=base)
+
     def kinematics(self, *link, base=None):
         link = tuple(link) if link else tuple(item[-1] for item in self.chain)
         base = base if base else next(iter(self.chain))[0]
@@ -310,8 +326,9 @@ class Kinematics:
     base: str
     link: tuple[str]
 
-    def forward(self, data):
-        raise NotImplementedError
+    def forward(self, data):  # [..., joint]
+        return self.spec.forward(data, *link, base=base)
 
-    def inverse(self, data):
+    def inverse(self, pose):  # [..., link, 7 (xyz+xyzw)]
+        assert pose.shape[-2] == len(self.link) and pose.shape[-1] == 7
         raise NotImplementedError

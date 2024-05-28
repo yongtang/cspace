@@ -35,16 +35,55 @@ def rpy_to_qua(rpy):
     return torch.stack((qx, qy, qz, qw), dim=-1)
 
 
-def qua_mul_qua(a, b):
-    ax, ay, az, aw = torch.unbind(a, dim=-1)
-    bx, by, bz, bw = torch.unbind(b, dim=-1)
+def qua_to_rot(qua):
+    qx, qy, qz, qw = torch.unbind(qua, dim=-1)
 
-    ow = aw * bw - ax * bx - ay * by - az * bz
-    ox = aw * bx + ax * bw + ay * bz - az * by
-    oy = aw * by - ax * bz + ay * bw + az * bx
-    oz = aw * bz + ax * by - ay * bx + az * bw
+    r00 = 2 * (qw * qw + qx * qx) - 1
+    r01 = 2 * (qx * qy - qw * qz)
+    r02 = 2 * (qx * qz + qw * qy)
+    r0 = torch.stack((r00, r01, r02), dim=-1)
 
-    qua = torch.stack((ox, oy, oz, ow), dim=-1)
+    r10 = 2 * (qx * qy + qw * qz)
+    r11 = 2 * (qw * qw + qy * qy) - 1
+    r12 = 2 * (qy * qz - qw * qx)
+    r1 = torch.stack((r10, r11, r12), dim=-1)
 
-    # non-negative real part
-    return torch.where(qua[..., 3:] < 0, -qua, qua)
+    r20 = 2 * (qx * qz - qw * qy)
+    r21 = 2 * (qy * qz + qw * qx)
+    r22 = 2 * (qw * qw + qz * qz) - 1
+    r2 = torch.stack((r20, r21, r22), dim=-1)
+
+    return torch.stack((r0, r1, r2), dim=-2)
+
+
+def rot_to_qua(rot):
+    m = rot
+    # q0 = qw
+    t = torch.trace(m)
+    q = torch.tensor([0.0, 0.0, 0.0, 0.0])
+
+    if t > 0:
+        t = torch.sqrt(t + 1)
+        q[3] = 0.5 * t
+        t = 0.5 / t
+        q[0] = (m[2, 1] - m[1, 2]) * t
+        q[1] = (m[0, 2] - m[2, 0]) * t
+        q[2] = (m[1, 0] - m[0, 1]) * t
+
+    else:
+        i = 0
+        if m[1, 1] > m[0, 0]:
+            i = 1
+        if m[2, 2] > m[i, i]:
+            i = 2
+        j = (i + 1) % 3
+        k = (j + 1) % 3
+
+        t = torch.sqrt(m[i, i] - m[j, j] - m[k, k] + 1)
+        q[i] = 0.5 * t
+        t = 0.5 / t
+        q[3] = (m[k, j] - m[j, k]) * t
+        q[j] = (m[j, i] + m[i, j]) * t
+        q[k] = (m[k, i] + m[i, k]) * t
+
+    return q
