@@ -307,13 +307,15 @@ class Spec:
             for i in range(1, len(route_final))
         ]
 
-    def forward(self, data, *link, base=None):  # [..., joint]
+    def forward(
+        self, data, *link, base=None
+    ):  # [..., joint] => [..., link, 7 (xyz+xyzw)]
         if self.function is None:
             raise NotImplementedError
         return self.function(self, data, *link, base=base)
 
-    def kinematics(self, *link, base=None):
-        return Kinematics(spec=self, base=base, link=link)
+    def kinematics(self, *link, base=None, model=None):
+        return Kinematics(spec=self, base=base, link=link, model=model)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -321,6 +323,7 @@ class Kinematics:
     spec: Spec
     base: str
     link: tuple[str]
+    model: typing.Callable
 
     def __post_init__(self):
         base = str(self.base if self.base else next(iter(self.spec.chain))[0])
@@ -338,5 +341,7 @@ class Kinematics:
         return self.spec.forward(data, *self.link, base=self.base)
 
     def inverse(self, pose):  # [..., link, 7 (xyz+xyzw)] => [..., joint]
+        if self.model is None:
+            raise NotImplementedError
         assert pose.shape[-2] == len(self.link) and pose.shape[-1] == 7
-        raise NotImplementedError
+        return self.model(self, pose)
