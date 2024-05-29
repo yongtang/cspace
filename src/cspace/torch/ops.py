@@ -3,6 +3,8 @@ import numpy
 
 
 def rpy_to_rot(rpy):
+    rpy = torch.as_tensor(rpy)
+
     r, p, y = torch.unbind(rpy, dim=-1)
 
     sr, cr = torch.sin(r), torch.cos(r)
@@ -30,16 +32,25 @@ def rpy_to_rot(rpy):
 
 
 def rot_to_rpy(rot):
-    cy = torch.sqrt(rot[0, 0] * rot[0, 0] + rot[1, 0] * rot[1, 0])
+    rot = torch.as_tensor(rot)
 
-    if cy > numpy.finfo(float).eps * 4.0:
-        ax = torch.atan2(rot[2, 1], rot[2, 2])
-        ay = torch.atan2(-rot[2, 0], cy)
-        az = torch.atan2(rot[1, 0], rot[0, 0])
-    else:
-        ax = torch.atan2(-rot[1, 2], rot[1, 1])
-        ay = torch.atan2(-rot[2, 0], cy)
-        az = torch.zeros_like(ax)
+    cy = torch.sqrt(rot[..., 0, 0] * rot[..., 0, 0] + rot[..., 1, 0] * rot[..., 1, 0])
+
+    ax = torch.where(
+        (cy > numpy.finfo(float).eps * 4.0),
+        torch.atan2(rot[..., 2, 1], rot[..., 2, 2]),
+        torch.atan2(-rot[..., 1, 2], rot[..., 1, 1]),
+    )
+    ay = torch.where(
+        (cy > numpy.finfo(float).eps * 4.0),
+        torch.atan2(-rot[..., 2, 0], cy),
+        torch.atan2(-rot[..., 2, 0], cy),
+    )
+    az = torch.where(
+        (cy > numpy.finfo(float).eps * 4.0),
+        torch.atan2(rot[..., 1, 0], rot[..., 0, 0]),
+        torch.zeros_like(ax),
+    )
 
     return torch.stack((ax, ay, az), dim=-1)
 
@@ -49,6 +60,8 @@ def qua_to_rpy(qua):
 
 
 def rpy_to_qua(rpy):
+    rpy = torch.as_tensor(rpy)
+
     r, p, y = torch.unbind(rpy, dim=-1)
 
     sr, cr = torch.sin(r / 2.0), torch.cos(r / 2.0)
@@ -64,6 +77,8 @@ def rpy_to_qua(rpy):
 
 
 def qua_to_rot(qua):
+    qua = torch.as_tensor(qua)
+
     qx, qy, qz, qw = torch.unbind(qua, dim=-1)
 
     rot = torch.stack(
@@ -85,32 +100,40 @@ def qua_to_rot(qua):
 
 
 def rot_to_qua(rot):
-    zero = torch.zeros_like(rot[0, 0])
+    rot = torch.as_tensor(rot)
+
+    zero = torch.zeros_like(rot[..., 0, 0])
+
     K = torch.stack(
         (
-            rot[0, 0] - rot[1, 1] - rot[2, 2],
+            rot[..., 0, 0] - rot[..., 1, 1] - rot[..., 2, 2],
             zero,
             zero,
             zero,
-            rot[0, 1] + rot[1, 0],
-            rot[1, 1] - rot[0, 0] - rot[2, 2],
+            rot[..., 0, 1] + rot[..., 1, 0],
+            rot[..., 1, 1] - rot[..., 0, 0] - rot[..., 2, 2],
             zero,
             zero,
-            rot[0, 2] + rot[2, 0],
-            rot[1, 2] + rot[2, 1],
-            rot[2, 2] - rot[0, 0] - rot[1, 1],
+            rot[..., 0, 2] + rot[..., 2, 0],
+            rot[..., 1, 2] + rot[..., 2, 1],
+            rot[..., 2, 2] - rot[..., 0, 0] - rot[..., 1, 1],
             zero,
-            rot[2, 1] - rot[1, 2],
-            rot[0, 2] - rot[2, 0],
-            rot[1, 0] - rot[0, 1],
-            rot[0, 0] + rot[1, 1] + rot[2, 2],
+            rot[..., 2, 1] - rot[..., 1, 2],
+            rot[..., 0, 2] - rot[..., 2, 0],
+            rot[..., 1, 0] - rot[..., 0, 1],
+            rot[..., 0, 0] + rot[..., 1, 1] + rot[..., 2, 2],
         ),
         dim=-1,
     )
 
     K = torch.unflatten(K, -1, (4, 4)) / 3.0
     L, Q = torch.linalg.eigh(K)
-    qua = Q[[0, 1, 2, 3], torch.argmax(L)]
-    qua = torch.where(qua[3] < 0, -qua, qua)
+
+    _, index = torch.max(L, dim=-1, keepdim=True)
+    index = torch.stack((index, index, index, index), dim=-2)
+
+    qua = torch.gather(Q, dim=-1, index=index)
+    qua = torch.squeeze(qua, -1)
+    qua = torch.where(qua[..., 3:4] < 0.0, -qua, qua)
 
     return qua

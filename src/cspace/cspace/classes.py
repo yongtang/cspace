@@ -334,9 +334,9 @@ class Kinematics:
         object.__setattr__(self, "base", base)
         object.__setattr__(self, "link", link)
 
-    def forward(self, data):  # [..., joint]
+    def forward(self, data):  # [..., joint] => [..., link, 7 (xyz+xyzw)]
         return self.spec.forward(data, *self.link, base=self.base)
 
-    def inverse(self, pose):  # [..., link, 7 (xyz+xyzw)]
+    def inverse(self, pose):  # [..., link, 7 (xyz+xyzw)] => [..., joint]
         assert pose.shape[-2] == len(self.link) and pose.shape[-1] == 7
         raise NotImplementedError

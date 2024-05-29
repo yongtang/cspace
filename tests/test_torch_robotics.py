@@ -3,60 +3,62 @@ import pytest
 import cspace.torch
 import cspace.torch.ops
 
-import transforms3d
+import itertools
 import pathlib
 import numpy
 import scipy
 import torch
 
 
-@pytest.mark.parametrize("angle_r", list(range(-180, 180, 30)))
-@pytest.mark.parametrize("angle_p", list(range(-180, 180, 30)))
-@pytest.mark.parametrize("angle_y", list(range(-180, 180, 30)))
-def test_ops(angle_r, angle_p, angle_y, device):
-    def t3d_rpy_to_qua(rpy):
-        qw, qx, qy, qz = transforms3d.euler.euler2quat(rpy[0], rpy[1], rpy[2])
-        return [qx, qy, qz, qw]
+@pytest.mark.parametrize(
+    "transforms3d_data",
+    list(
+        itertools.product(
+            range(-180, 180, 30),  # angle_r
+            range(-180, 180, 30),  # angle_p
+            range(-180, 180, 30),  # angle_r
+            ([], [1], [2], [3], [1, 1], [2, 2], [3, 3]),  # batch
+            [0],  # interleave
+        ),
+    ),
+    indirect=True,
+    ids=lambda param: "angle({},{},{})-batch({})-interleave({})".format(*param),
+)
+def test_ops(transforms3d_data, device):
+    (
+        rpy,
+        qua,
+        rot,
+        rpy_to_rot,
+        rot_to_rpy,
+        rpy_to_qua,
+        qua_to_rot,
+        rot_to_qua,
+        batch,
+    ) = transforms3d_data
 
-    def t3d_qua_to_rot(qua):
-        qx, qy, qz, qw = qua
-        return transforms3d.euler.quat2mat([qw, qx, qy, qz])
+    assert rpy.shape == tuple(batch + [3])
+    assert qua.shape == tuple(batch + [4])
+    assert rot.shape == tuple(batch + [3, 3])
+    assert rpy_to_rot.shape == tuple(batch + [3, 3])
+    assert rot_to_rpy.shape == tuple(batch + [3])
+    assert qua_to_rot.shape == tuple(batch + [3, 3])
+    assert rot_to_qua.shape == tuple(batch + [4])
 
-    def t3d_rot_to_rpy(rot):
-        return transforms3d.euler.mat2euler(rot)
-
-    def t3d_qua_to_rpy(qua):
-        qx, qy, qz, qw = qua
-        return transforms3d.euler.quat2euler([qw, qx, qy, qz])
-
-    def t3d_rpy_to_rot(rpy):
-        return transforms3d.euler.euler2mat(rpy[0], rpy[1], rpy[2])
-
-    def t3d_rot_to_rpy(rot):
-        return transforms3d.euler.mat2euler(rot)
-
-    def t3d_rot_to_qua(rot):
-        rot = numpy.array(rot)
-        qw, qx, qy, qz = transforms3d.quaternions.mat2quat(rot)
-        return [qx, qy, qz, qw]
-
-    rpy = scipy.special.radian((angle_r, angle_p, angle_y), 0, 0)
-    rpy = torch.as_tensor(rpy, dtype=torch.float64)
-
-    rot = cspace.torch.ops.rpy_to_rot(rpy)
-    assert numpy.allclose(rot, t3d_rpy_to_rot(rpy), atol=1e-4)
+    val = cspace.torch.ops.rpy_to_rot(rpy)
+    assert numpy.allclose(val, rpy_to_rot, atol=1e-4)
 
     val = cspace.torch.ops.rot_to_rpy(rot)
-    assert numpy.allclose(val, t3d_rot_to_rpy(rot), atol=1e-4)
+    assert numpy.allclose(val, rot_to_rpy, atol=1e-4)
 
-    qua = cspace.torch.ops.rpy_to_qua(rpy)
-    assert numpy.allclose(qua, t3d_rpy_to_qua(rpy), atol=1e-4)
+    val = cspace.torch.ops.rpy_to_qua(rpy)
+    assert numpy.allclose(val, rpy_to_qua, atol=1e-4)
 
-    rot = cspace.torch.ops.qua_to_rot(qua)
-    assert numpy.allclose(rot, t3d_qua_to_rot(qua), atol=1e-4)
+    val = cspace.torch.ops.qua_to_rot(qua)
+    assert numpy.allclose(val, qua_to_rot, atol=1e-4)
 
-    qua = cspace.torch.ops.rot_to_qua(rot)
-    assert numpy.allclose(qua, t3d_rot_to_qua(rot), atol=1e-4)
+    val = cspace.torch.ops.rot_to_qua(rot)
+    assert numpy.allclose(val, rot_to_qua, atol=1e-4)
 
 
 def test_spec(device, urdf_file):
