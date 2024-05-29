@@ -126,7 +126,6 @@ def test_transform(device, urdf_file, joint_state, link_pose):
     spec = cspace.torch.Spec(description=pathlib.Path(urdf_file).read_text())
 
     joint_state = dict(zip(joint_state.name, joint_state.position))
-
     state = [joint_state.get(joint.name, 0.0) for joint in spec.joint]
     state = torch.as_tensor(state, dtype=torch.float64)
 
@@ -148,6 +147,25 @@ def test_transform(device, urdf_file, joint_state, link_pose):
             assert numpy.allclose(true, data, atol=1e-4)
 
 
-def test_kinematics(device, urdf_file):
+def test_kinematics(device, urdf_file, joint_state, link_pose):
     spec = cspace.torch.Spec(description=pathlib.Path(urdf_file).read_text())
     kinematics = spec.kinematics("left_gripper")
+
+    joint_state = dict(zip(joint_state.name, joint_state.position))
+    state = [joint_state.get(joint.name, 0.0) for joint in spec.joint]
+    state = torch.as_tensor(state, dtype=torch.float64)
+    true = torch.tensor(
+        [
+            link_pose["left_gripper"].pose.position.x,
+            link_pose["left_gripper"].pose.position.y,
+            link_pose["left_gripper"].pose.position.z,
+            link_pose["left_gripper"].pose.orientation.x,
+            link_pose["left_gripper"].pose.orientation.y,
+            link_pose["left_gripper"].pose.orientation.z,
+            link_pose["left_gripper"].pose.orientation.w,
+        ]
+    ).unsqueeze(-2)
+
+    pose = kinematics.forward(state)
+    assert pose.shape == true.shape
+    assert numpy.allclose(pose, true, atol=1e-4)

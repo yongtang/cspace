@@ -313,10 +313,6 @@ class Spec:
         return self.function(self, data, *link, base=base)
 
     def kinematics(self, *link, base=None):
-        link = tuple(link) if link else tuple(item[-1] for item in self.chain)
-        base = base if base else next(iter(self.chain))[0]
-        assert self.chain(base)
-        assert all([self.chain(item) for item in link])
         return Kinematics(spec=self, base=base, link=link)
 
 
@@ -326,8 +322,20 @@ class Kinematics:
     base: str
     link: tuple[str]
 
+    def __post_init__(self):
+        base = str(self.base if self.base else next(iter(self.spec.chain))[0])
+        link = (
+            tuple(self.link)
+            if self.link
+            else tuple(item[-1] for item in self.spec.chain)
+        )
+        assert self.spec.chain(base)
+        assert all([self.spec.chain(item) for item in link])
+        object.__setattr__(self, "base", base)
+        object.__setattr__(self, "link", link)
+
     def forward(self, data):  # [..., joint]
-        return self.spec.forward(data, *link, base=base)
+        return self.spec.forward(data, *self.link, base=self.base)
 
     def inverse(self, pose):  # [..., link, 7 (xyz+xyzw)]
         assert pose.shape[-2] == len(self.link) and pose.shape[-1] == 7
