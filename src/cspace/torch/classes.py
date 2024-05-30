@@ -104,7 +104,7 @@ class Spec(cspace.cspace.classes.Spec):
                         (0.0, 0.0, 0.0),
                         device=data.device,
                         dtype=torch.float64,
-                    ).repeat(*shape)
+                    ).expand(*(shape[:-1] + tuple([-1])))
                     qua = cspace.torch.ops.rpy_to_qua(data)
                 else:
                     xyz = data
@@ -112,7 +112,7 @@ class Spec(cspace.cspace.classes.Spec):
                         (0.0, 0.0, 0.0, 1.0),
                         device=data.device,
                         dtype=torch.float64,
-                    ).repeat(*shape)
+                    ).expand(*(shape[:-1] + tuple([-1])))
                 transform = transform * Transform(
                     data=torch.concatenate((xyz, qua), dim=-1)
                 )
