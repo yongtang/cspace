@@ -134,7 +134,7 @@ class Spec(cspace.cspace.classes.Spec):
         def f_spec(spec, data, *link, base=None):
             data = torch.as_tensor(data, dtype=torch.float64)
             assert data.shape[-1] == len(spec.joint)
-            base = base if base else next(iter(spec.chain))[0]
+            base = base if base else self.base
 
             return torch.stack(
                 tuple(f_link(spec, data, item, base=base).data for item in link), dim=-2

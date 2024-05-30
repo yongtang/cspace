@@ -290,7 +290,7 @@ class Spec:
                 elif item.parent == target and item.child == source:
                     return (item.name, True)
 
-        target = target if target else next(iter(self.chain))[0]
+        target = target if target else self.base
 
         route_chain = f_route(self.chain, source, target)
 
@@ -306,6 +306,14 @@ class Spec:
             f_lookup(self.joint, route_final[i - 1], route_final[i])
             for i in range(1, len(route_final))
         ]
+
+    @functools.cached_property
+    def link(self):
+        return tuple(item[-1] for item in self.chain)
+
+    @functools.cached_property
+    def base(self):
+        return next(iter(next(iter(self.chain))))
 
     def forward(
         self, data, *link, base=None
@@ -326,14 +334,10 @@ class Kinematics:
     model: typing.Callable
 
     def __post_init__(self):
-        base = str(self.base if self.base else next(iter(self.spec.chain))[0])
-        link = (
-            tuple(self.link)
-            if self.link
-            else tuple(item[-1] for item in self.spec.chain)
-        )
-        assert self.spec.chain(base)
-        assert all([self.spec.chain(item) for item in link])
+        assert (not self.base) or (self.base in self.spec.link)
+        assert (not self.link) or all([(item in self.spec.link) for item in self.link])
+        base = str(self.base) if self.base else self.spec.base
+        link = tuple(self.link) if self.link else self.spec.link
         object.__setattr__(self, "base", base)
         object.__setattr__(self, "link", link)
 
