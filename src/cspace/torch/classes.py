@@ -8,37 +8,28 @@ import torch
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Transform:
-    data: torch.Tensor
-
-    @property
-    def xyz(self):
-        return self.data[..., :3]
-
-    @property
-    def qua(self):
-        return self.data[..., 3:]
+    xyz: torch.Tensor
+    rot: torch.Tensor
 
     @property
     def rpy(self):
-        return cspace.torch.ops.qua_to_rpy(self.qua)
+        return cspace.torch.ops.rot_to_rpy(self.rot)
 
     @property
-    def rot(self):
-        return cspace.torch.ops.qua_to_rot(self.qua)
+    def qua(self):
+        return cspace.torch.ops.rot_to_qua(self.rot)
 
     def inverse(self):
         assert self.rot.ndim == 2 and other.rot.ndim == 2
         xyz = torch.mm(self.rot.transpose(), self.xyz)
-        qua = cspace.torch.ops.rot_to_qua(self.rot.transpose())
-        data = torch.concatenate((xyz, qua), dim=-1)
-        return Transform(data=data)
+        rot = self.rot.transpose()
+        return Transform(xyz=xyz, rot=rot)
 
     def __mul__(self, other):
         assert self.rot.ndim == 2 and other.rot.ndim == 2
         xyz = torch.mm(self.rot, other.xyz.unsqueeze(-1)).squeeze(-1) + self.xyz
-        qua = cspace.torch.ops.rot_to_qua(torch.mm(self.rot, other.rot))
-        data = torch.concatenate((xyz, qua), dim=-1)
-        return Transform(data=data)
+        rot = torch.mm(self.rot, other.rot)
+        return Transform(xyz=xyz, rot=rot)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -62,9 +53,9 @@ class Spec(cspace.cspace.classes.Spec):
                 device=data.device,
                 dtype=torch.float64,
             )
-            qua = cspace.torch.ops.rpy_to_qua(rpy)
+            rot = cspace.torch.ops.rpy_to_rot(rpy)
 
-            transform = Transform(data=torch.concatenate((xyz, qua), dim=-1))
+            transform = Transform(xyz=xyz, rot=rot)
 
             if isinstance(
                 joint,
@@ -105,17 +96,15 @@ class Spec(cspace.cspace.classes.Spec):
                         device=data.device,
                         dtype=torch.float64,
                     ).expand(*(shape[:-1] + tuple([-1])))
-                    qua = cspace.torch.ops.rpy_to_qua(data)
+                    rot = cspace.torch.ops.rpy_to_rot(data)
                 else:
                     xyz = data
-                    qua = torch.as_tensor(
-                        (0.0, 0.0, 0.0, 1.0),
+                    rot = torch.eye(
+                        3,
                         device=data.device,
                         dtype=torch.float64,
-                    ).expand(*(shape[:-1] + tuple([-1])))
-                transform = transform * Transform(
-                    data=torch.concatenate((xyz, qua), dim=-1)
-                )
+                    ).expand(*(shape[:-2] + tuple([-1, -1])))
+                transform = transform * Transform(xyz=xyz, rot=rot)
 
             return transform
 
@@ -129,19 +118,18 @@ class Spec(cspace.cspace.classes.Spec):
 
                 return transform
 
-            return functools.reduce(
+            transform = functools.reduce(
                 operator.mul,
                 [
                     f_transform(spec, data, name, forward)
                     for name, forward in reversed(spec.route(link, base))
                 ],
                 Transform(
-                    data=torch.as_tensor(
-                        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-                        dtype=torch.float64,
-                    )
+                    xyz=torch.as_tensor([0, 0, 0], dtype=torch.float64),
+                    rot=torch.eye(3, device=data.device, dtype=torch.float64),
                 ),
             )
+            return torch.concatenate((transform.xyz, transform.qua), dim=-1)
 
         def f_spec(spec, data, *link, base=None):
             data = torch.as_tensor(data, dtype=torch.float64)
