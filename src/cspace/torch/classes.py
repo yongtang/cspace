@@ -125,7 +125,9 @@ class Spec(cspace.cspace.classes.Spec):
                     for name, forward in reversed(spec.route(link, base))
                 ],
                 Transform(
-                    xyz=torch.as_tensor([0, 0, 0], dtype=torch.float64),
+                    xyz=torch.as_tensor(
+                        [0, 0, 0], device=data.device, dtype=torch.float64
+                    ),
                     rot=torch.eye(3, device=data.device, dtype=torch.float64),
                 ),
             )

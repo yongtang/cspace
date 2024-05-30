@@ -5,7 +5,6 @@ import cspace.torch.ops
 
 import itertools
 import pathlib
-import numpy
 import scipy
 import torch
 
@@ -37,6 +36,26 @@ def test_ops(transforms3d_data, device):
         batch,
     ) = transforms3d_data
 
+    (
+        rpy,
+        qua,
+        rot,
+        rpy_to_rot,
+        rot_to_rpy,
+        rpy_to_qua,
+        qua_to_rot,
+        rot_to_qua,
+    ) = (
+        torch.as_tensor(rpy, device=device),
+        torch.as_tensor(qua, device=device),
+        torch.as_tensor(rot, device=device),
+        torch.as_tensor(rpy_to_rot, device=device),
+        torch.as_tensor(rot_to_rpy, device=device),
+        torch.as_tensor(rpy_to_qua, device=device),
+        torch.as_tensor(qua_to_rot, device=device),
+        torch.as_tensor(rot_to_qua, device=device),
+    )
+
     assert rpy.shape == tuple(batch + [3])
     assert qua.shape == tuple(batch + [4])
     assert rot.shape == tuple(batch + [3, 3])
@@ -46,19 +65,19 @@ def test_ops(transforms3d_data, device):
     assert rot_to_qua.shape == tuple(batch + [4])
 
     val = cspace.torch.ops.rpy_to_rot(rpy)
-    assert numpy.allclose(val, rpy_to_rot, atol=1e-4)
+    assert torch.allclose(val, rpy_to_rot, atol=1e-4)
 
     val = cspace.torch.ops.rot_to_rpy(rot)
-    assert numpy.allclose(val, rot_to_rpy, atol=1e-4)
+    assert torch.allclose(val, rot_to_rpy, atol=1e-4)
 
     val = cspace.torch.ops.rpy_to_qua(rpy)
-    assert numpy.allclose(val, rpy_to_qua, atol=1e-4)
+    assert torch.allclose(val, rpy_to_qua, atol=1e-4)
 
     val = cspace.torch.ops.qua_to_rot(qua)
-    assert numpy.allclose(val, qua_to_rot, atol=1e-4)
+    assert torch.allclose(val, qua_to_rot, atol=1e-4)
 
     # val = cspace.torch.ops.rot_to_qua(rot)
-    # assert numpy.allclose(val, rot_to_qua, atol=1e-4)
+    # assert torch.allclose(val, rot_to_qua, atol=1e-4)
 
 
 def test_spec(device, urdf_file):
@@ -66,62 +85,80 @@ def test_spec(device, urdf_file):
 
     joint = spec.joint("base_to_right_leg")
 
-    xyz = joint.origin.xyz
-    rpy = joint.origin.rpy
-    qua = scipy.spatial.transform.Rotation.from_euler("xyz", rpy).as_quat()
+    xyz = torch.tensor(joint.origin.xyz, device=device, dtype=torch.float64)
+    rpy = torch.tensor(joint.origin.rpy, device=device, dtype=torch.float64)
+    qua = torch.tensor(
+        scipy.spatial.transform.Rotation.from_euler("xyz", rpy.cpu()).as_quat(),
+        device=device,
+        dtype=torch.float64,
+    )
 
-    state = torch.tensor(1.0)
+    state = torch.tensor(1.0, device=device, dtype=torch.float64)
 
     transform = joint.transform(state)
 
-    assert numpy.allclose(transform.xyz, xyz, atol=1e-4)
-    assert numpy.allclose(transform.rpy, rpy, atol=1e-4)
-    assert numpy.allclose(transform.qua, qua, atol=1e-4)
+    assert torch.allclose(transform.xyz, xyz, atol=1e-4)
+    assert torch.allclose(transform.rpy, rpy, atol=1e-4)
+    assert torch.allclose(transform.qua, qua, atol=1e-4)
 
     # continuous axis=(0, 1, 0)
     joint = spec.joint("right_front_wheel_joint")
 
-    xyz = joint.origin.xyz
-    rpy = (0, 1, 0)
-    qua = scipy.spatial.transform.Rotation.from_euler("xyz", rpy).as_quat()
+    xyz = torch.tensor(joint.origin.xyz, device=device, dtype=torch.float64)
+    rpy = torch.tensor((0, 1, 0), device=device, dtype=torch.float64)
+    qua = torch.tensor(
+        scipy.spatial.transform.Rotation.from_euler("xyz", rpy.cpu()).as_quat(),
+        device=device,
+        dtype=torch.float64,
+    )
 
-    state = torch.tensor(1.0)
+    state = torch.tensor(1.0, device=device, dtype=torch.float64)
 
     transform = joint.transform(state)
 
-    assert numpy.allclose(transform.xyz, xyz, atol=1e-4)
-    assert numpy.allclose(transform.rpy, rpy, atol=1e-4)
-    assert numpy.allclose(transform.qua, qua, atol=1e-4)
+    assert torch.allclose(transform.xyz, xyz, atol=1e-4)
+    assert torch.allclose(transform.rpy, rpy, atol=1e-4)
+    assert torch.allclose(transform.qua, qua, atol=1e-4)
 
     # revolute axis=(0, 0, 1) limit=(0.0, 0.548)
     joint = spec.joint("left_gripper_joint")
 
-    xyz = joint.origin.xyz
-    rpy = (0, 0, 0.548)
-    qua = scipy.spatial.transform.Rotation.from_euler("xyz", rpy).as_quat()
+    xyz = torch.tensor(joint.origin.xyz, device=device, dtype=torch.float64)
+    rpy = torch.tensor((0, 0, 0.548), device=device, dtype=torch.float64)
+    qua = torch.tensor(
+        scipy.spatial.transform.Rotation.from_euler("xyz", rpy.cpu()).as_quat(),
+        device=device,
+        dtype=torch.float64,
+    )
 
-    state = torch.tensor(1.0)
+    state = torch.tensor(1.0, device=device, dtype=torch.float64)
 
     transform = joint.transform(state)
 
-    assert numpy.allclose(transform.xyz, xyz, atol=1e-4)
-    assert numpy.allclose(transform.rpy, rpy, atol=1e-4)
-    assert numpy.allclose(transform.qua, qua, atol=1e-4)
+    assert torch.allclose(transform.xyz, xyz, atol=1e-4)
+    assert torch.allclose(transform.rpy, rpy, atol=1e-4)
+    assert torch.allclose(transform.qua, qua, atol=1e-4)
 
     # prismatic axis=(1, 0, 0) limit=(-0.38, 0)
     joint = spec.joint("gripper_extension")
 
-    xyz = torch.as_tensor(joint.origin.xyz) + torch.as_tensor((-0.38, 0, 0))
-    rpy = joint.origin.rpy
-    qua = scipy.spatial.transform.Rotation.from_euler("xyz", rpy).as_quat()
+    xyz = torch.tensor(joint.origin.xyz, device=device) + torch.tensor(
+        (-0.38, 0, 0), device=device, dtype=torch.float64
+    )
+    rpy = torch.tensor(joint.origin.rpy, device=device, dtype=torch.float64)
+    qua = torch.tensor(
+        scipy.spatial.transform.Rotation.from_euler("xyz", rpy.cpu()).as_quat(),
+        device=device,
+        dtype=torch.float64,
+    )
 
-    state = torch.tensor(-1.0)
+    state = torch.tensor(-1.0, device=device, dtype=torch.float64)
 
     transform = joint.transform(state)
 
-    assert numpy.allclose(transform.xyz, xyz, atol=1e-4)
-    assert numpy.allclose(transform.rpy, rpy, atol=1e-4)
-    assert numpy.allclose(transform.qua, qua, atol=1e-4)
+    assert torch.allclose(transform.xyz, xyz, atol=1e-4)
+    assert torch.allclose(transform.rpy, rpy, atol=1e-4)
+    assert torch.allclose(transform.qua, qua, atol=1e-4)
 
 
 def test_transform(device, urdf_file, joint_state, link_pose):
@@ -129,7 +166,7 @@ def test_transform(device, urdf_file, joint_state, link_pose):
 
     joint_state = dict(zip(joint_state.name, joint_state.position))
     state = [joint_state.get(joint.name, 0.0) for joint in spec.joint]
-    state = torch.as_tensor(state, dtype=torch.float64)
+    state = torch.as_tensor(state, dtype=torch.float64, device=device)
 
     for chain in spec.chain:
         link = chain[-1]
@@ -144,9 +181,11 @@ def test_transform(device, urdf_file, joint_state, link_pose):
                     link_pose[link].pose.orientation.y,
                     link_pose[link].pose.orientation.z,
                     link_pose[link].pose.orientation.w,
-                ]
+                ],
+                device=device,
+                dtype=torch.float64,
             ).unsqueeze(-2)
-            assert numpy.allclose(true, data, atol=1e-4)
+            assert torch.allclose(true, data, atol=1e-4)
 
 
 def test_kinematics(device, urdf_file, joint_state, link_pose):
@@ -155,7 +194,7 @@ def test_kinematics(device, urdf_file, joint_state, link_pose):
 
     joint_state = dict(zip(joint_state.name, joint_state.position))
     state = [joint_state.get(joint.name, 0.0) for joint in spec.joint]
-    state = torch.as_tensor(state, dtype=torch.float64)
+    state = torch.as_tensor(state, device=device, dtype=torch.float64)
     true = torch.tensor(
         [
             link_pose["left_gripper"].pose.position.x,
@@ -165,9 +204,11 @@ def test_kinematics(device, urdf_file, joint_state, link_pose):
             link_pose["left_gripper"].pose.orientation.y,
             link_pose["left_gripper"].pose.orientation.z,
             link_pose["left_gripper"].pose.orientation.w,
-        ]
+        ],
+        device=device,
+        dtype=torch.float64,
     ).unsqueeze(-2)
 
     pose = kinematics.forward(state)
     assert pose.shape == true.shape
-    assert numpy.allclose(pose, true, atol=1e-4)
+    assert torch.allclose(pose, true, atol=1e-4)
