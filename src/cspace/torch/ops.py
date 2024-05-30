@@ -1,5 +1,4 @@
 import torch
-import numpy
 
 
 def rpy_to_rot(rpy):
@@ -33,21 +32,22 @@ def rpy_to_rot(rpy):
 
 def rot_to_rpy(rot):
     rot = torch.as_tensor(rot)
+    eps = torch.finfo(rot.dtype).eps
 
     cy = torch.sqrt(rot[..., 0, 0] * rot[..., 0, 0] + rot[..., 1, 0] * rot[..., 1, 0])
 
     ax = torch.where(
-        (cy > numpy.finfo(float).eps * 4.0),
+        (cy > eps * 4.0),
         torch.atan2(rot[..., 2, 1], rot[..., 2, 2]),
         torch.atan2(-rot[..., 1, 2], rot[..., 1, 1]),
     )
     ay = torch.where(
-        (cy > numpy.finfo(float).eps * 4.0),
+        (cy > eps * 4.0),
         torch.atan2(-rot[..., 2, 0], cy),
         torch.atan2(-rot[..., 2, 0], cy),
     )
     az = torch.where(
-        (cy > numpy.finfo(float).eps * 4.0),
+        (cy > eps * 4.0),
         torch.atan2(rot[..., 1, 0], rot[..., 0, 0]),
         torch.zeros_like(ax),
     )
