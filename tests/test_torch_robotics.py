@@ -95,7 +95,7 @@ def test_spec(device, urdf_file):
 
     state = torch.tensor(1.0, device=device, dtype=torch.float64)
 
-    transform = joint.transform(state)
+    transform = joint.transform(cspace.torch.classes.ForwardOp(), state)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -114,7 +114,7 @@ def test_spec(device, urdf_file):
 
     state = torch.tensor(1.0, device=device, dtype=torch.float64)
 
-    transform = joint.transform(state)
+    transform = joint.transform(cspace.torch.classes.ForwardOp(), state)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -133,7 +133,7 @@ def test_spec(device, urdf_file):
 
     state = torch.tensor(1.0, device=device, dtype=torch.float64)
 
-    transform = joint.transform(state)
+    transform = joint.transform(cspace.torch.classes.ForwardOp(), state)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -154,7 +154,7 @@ def test_spec(device, urdf_file):
 
     state = torch.tensor(-1.0, device=device, dtype=torch.float64)
 
-    transform = joint.transform(state)
+    transform = joint.transform(cspace.torch.classes.ForwardOp(), state)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)

@@ -1,5 +1,6 @@
 import abc
 import typing
+import operator
 import itertools
 import functools
 import dataclasses
@@ -28,14 +29,29 @@ class Transform(abc.ABC):
         raise NotImplementedError
 
 
-class JointOp(abc.ABC):
+class ForwardOp(abc.ABC):
+    @abc.abstractmethod
+    def select(self, data):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def identity(self, data):
+        raise NotImplementedError
+
+    @abc.abstractmethod
     def origin(self, data, xyz, rpy):
         raise NotImplementedError
 
+    @abc.abstractmethod
     def linear(self, data, axis, upper, lower):
         raise NotImplementedError
 
+    @abc.abstractmethod
     def angular(self, data, axis, upper, lower):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def stack(self, *transform):
         raise NotImplementedError
 
 
@@ -67,17 +83,16 @@ class Joint(abc.ABC):
     origin: Attribute.Origin
     axis: tuple[int, int, int]
     limit: Attribute.Limit
-    op: JointOp = JointOp()
 
     @abc.abstractmethod
-    def transform(self, data):
+    def transform(self, op, data):
         raise NotImplementedError
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class Fixed(Joint):
-    def transform(self, data):
-        return self.op.origin(
+    def transform(self, op, data):
+        return op.origin(
             data,
             self.origin.xyz,
             self.origin.rpy,
@@ -86,12 +101,12 @@ class Fixed(Joint):
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class Revolute(Joint):
-    def transform(self, data):
-        return self.op.origin(
+    def transform(self, op, data):
+        return op.origin(
             data,
             self.origin.xyz,
             self.origin.rpy,
-        ) * self.op.angular(
+        ) * op.angular(
             data,
             self.axis,
             self.limit.upper,
@@ -101,12 +116,12 @@ class Revolute(Joint):
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class Continuous(Joint):
-    def transform(self, data):
-        return self.op.origin(
+    def transform(self, op, data):
+        return op.origin(
             data,
             self.origin.xyz,
             self.origin.rpy,
-        ) * self.op.angular(
+        ) * op.angular(
             data,
             self.axis,
             None,
@@ -116,12 +131,12 @@ class Continuous(Joint):
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class Prismatic(Joint):
-    def transform(self, data):
-        return self.op.origin(
+    def transform(self, op, data):
+        return op.origin(
             data,
             self.origin.xyz,
             self.origin.rpy,
-        ) * self.op.linear(
+        ) * op.linear(
             data,
             self.axis,
             self.limit.upper,
@@ -185,7 +200,7 @@ class Spec:
     description: str = dataclasses.field(repr=False)
     chain: ChainCollection = dataclasses.field(init=False)
     joint: JointCollection = dataclasses.field(init=False)
-    function: typing.Callable | None = None
+    op: ForwardOp | None = None
 
     def __post_init__(self):
         def f_attribute(e, name):
@@ -360,9 +375,32 @@ class Spec:
     def forward(
         self, data, *link, base=None
     ):  # [..., joint] => [..., link, 7 (xyz+xyzw)]
-        if self.function is None:
+        if self.op is None:
             raise NotImplementedError
-        return self.function(self, data, *link, base=base)
+        base = base if base else self.base
+        link = link if len(link) else self.link
+
+        def f_link(self, data, link, base=None):
+            def f_transform(self, data, name, forward):
+                index = self.joint.index(name)
+                value = self.op.select(data, index)
+                transform = self.joint(name).transform(self.op, value)
+                transform = transform if forward else transform.inverse()
+                return transform
+
+            transform = functools.reduce(
+                operator.mul,
+                [
+                    f_transform(self, data, name, forward)
+                    for name, forward in reversed(self.route(link, base))
+                ],
+                self.op.identity(self.op.select(data, 0)),
+            )
+            return transform
+
+        return self.op.stack(
+            *tuple(f_link(self, data, item, base=base) for item in link)
+        )
 
     def kinematics(self, *link, base=None, model=None):
         return Kinematics(spec=self, base=base, link=link, model=model)

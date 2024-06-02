@@ -1,8 +1,6 @@
 import cspace.cspace.classes
 import cspace.torch.ops
 import dataclasses
-import functools
-import operator
 import torch
 
 
@@ -29,7 +27,19 @@ class Transform(cspace.cspace.classes.Transform):
         return Transform(xyz=xyz, rot=rot)
 
 
-class JointOp(cspace.cspace.classes.JointOp):
+class ForwardOp(cspace.cspace.classes.ForwardOp):
+    def select(self, data, index):
+        data = torch.as_tensor(data, dtype=torch.float64)
+        return torch.select(data, dim=-1, index=index)
+
+    def identity(self, data):
+        data = torch.as_tensor(data, dtype=torch.float64)
+
+        xyz = torch.as_tensor([0, 0, 0], device=data.device, dtype=data.dtype)
+        rot = rot = torch.eye(3, device=data.device, dtype=data.dtype)
+
+        return Transform(xyz=xyz, rot=rot)
+
     def origin(self, data, xyz, rpy):
         data = torch.as_tensor(data, dtype=torch.float64)
 
@@ -150,46 +160,21 @@ class JointOp(cspace.cspace.classes.JointOp):
 
         return Transform(xyz=xyz, rot=rot)
 
+    def stack(self, *transform):
+        return torch.stack(
+            tuple(
+                map(
+                    lambda entry: torch.concatenate((entry.xyz, entry.qua), dim=-1),
+                    transform,
+                )
+            ),
+            dim=-2,
+        )
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Spec(cspace.cspace.classes.Spec):
     def __post_init__(self):
         super().__post_init__()
 
-        def f_link(spec, data, link, base=None):
-            def f_transform(spec, data, name, forward):
-                index = spec.joint.index(name)
-                value = torch.select(data, dim=-1, index=index)
-                transform = spec.joint(name).transform(value)
-
-                transform = transform if forward else transform.inverse()
-
-                return transform
-
-            transform = functools.reduce(
-                operator.mul,
-                [
-                    f_transform(spec, data, name, forward)
-                    for name, forward in reversed(spec.route(link, base))
-                ],
-                Transform(
-                    xyz=torch.as_tensor(
-                        [0, 0, 0], device=data.device, dtype=torch.float64
-                    ),
-                    rot=torch.eye(3, device=data.device, dtype=torch.float64),
-                ),
-            )
-            return torch.concatenate((transform.xyz, transform.qua), dim=-1)
-
-        def f_spec(spec, data, *link, base=None):
-            data = torch.as_tensor(data, dtype=torch.float64)
-            assert data.shape[-1] == len(spec.joint)
-            base = base if base else self.base
-
-            return torch.stack(
-                tuple(f_link(spec, data, item, base=base).data for item in link), dim=-2
-            )
-
-        for joint in self.joint:
-            object.__setattr__(joint, "op", JointOp())
-        object.__setattr__(self, "function", f_spec)
+        object.__setattr__(self, "op", ForwardOp())
