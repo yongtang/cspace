@@ -49,45 +49,99 @@ class JointOp(cspace.cspace.classes.JointOp):
 
     def linear(self, data, axis, upper, lower):
         data = torch.as_tensor(data, dtype=torch.float64)
-        data = data.unsqueeze(-1)
-        shape = data.shape
-
         data = torch.clip(data, min=lower, max=upper)
-        axis = torch.as_tensor(
-            axis,
-            device=data.device,
-            dtype=data.dtype,
+        zero = torch.zeros_like(data)
+
+        assert len(axis) == 3 and len([e for e in axis if e]) == 1
+        index, sign = next(
+            iter([(index, sign) for index, sign in enumerate(axis) if sign])
         )
-        xyz = torch.multiply(data, axis)
+        if index == 0:
+            xyz = torch.stack((data, zero, zero), dim=-1)
+        elif index == 1:
+            xyz = torch.stack((zero, data, zero), dim=-1)
+        else:
+            xyz = torch.stack((zero, zero, data), dim=-1)
+        xyz = xyz if sign > 0 else -xyz
+
         rot = torch.eye(
             3,
             device=data.device,
             dtype=data.dtype,
-        ).expand(*(shape[:-2] + tuple([-1, -1])))
+        ).expand(*(xyz.shape[:-1] + tuple([-1, -1])))
+
         return Transform(xyz=xyz, rot=rot)
 
     def angular(self, data, axis, upper, lower):
         data = torch.as_tensor(data, dtype=torch.float64)
-        data = data.unsqueeze(-1)
-        shape = data.shape
-
-        xyz = torch.as_tensor(
-            (0.0, 0.0, 0.0),
-            device=data.device,
-            dtype=data.dtype,
-        ).expand(*(shape[:-1] + tuple([-1])))
         data = (
             torch.clip(data, min=lower, max=upper)
             if (upper is not None or lower is not None)
             else data
         )
-        axis = torch.as_tensor(
-            axis,
+        zero = torch.zeros_like(data)
+        one = torch.ones_like(data)
+        sin = torch.sin(data)
+        cos = torch.cos(data)
+
+        assert len(axis) == 3 and len([e for e in axis if e]) == 1
+        index, sign = next(
+            iter([(index, sign) for index, sign in enumerate(axis) if sign])
+        )
+        if index == 0:
+            rot = torch.stack(
+                (
+                    one,
+                    zero,
+                    zero,
+                    zero,
+                    cos,
+                    -sin,
+                    zero,
+                    sin,
+                    cos,
+                ),
+                dim=-1,
+            )
+        elif index == 1:
+            rot = torch.stack(
+                (
+                    cos,
+                    zero,
+                    sin,
+                    zero,
+                    one,
+                    zero,
+                    -sin,
+                    zero,
+                    cos,
+                ),
+                dim=-1,
+            )
+        else:
+            rot = torch.stack(
+                (
+                    cos,
+                    -sin,
+                    zero,
+                    sin,
+                    cos,
+                    zero,
+                    zero,
+                    zero,
+                    one,
+                ),
+                dim=-1,
+            )
+        rot = rot if sign > 0 else -rot
+        rot = torch.unflatten(rot, -1, (3, 3))
+
+        xyz = torch.as_tensor(
+            (0.0, 0.0, 0.0),
             device=data.device,
             dtype=data.dtype,
-        )
-        rpy = torch.multiply(data, axis)
-        rot = cspace.torch.ops.rpy_to_rot(rpy)
+        ).expand(*(rot.shape[:-2] + tuple([-1])))
+
         return Transform(xyz=xyz, rot=rot)
 
 

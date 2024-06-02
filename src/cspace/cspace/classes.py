@@ -6,26 +6,6 @@ import dataclasses
 import xml.dom.minidom
 
 
-class Attribute:
-    @dataclasses.dataclass(kw_only=True, frozen=True, repr=False)
-    class Limit:
-        lower: float
-        upper: float
-        effort: float
-        velocity: float
-
-        def __repr__(self):
-            return f"(lower={self.lower}, upper={self.upper}, effort={self.effort}, velocity={self.velocity})"
-
-    @dataclasses.dataclass(kw_only=True, frozen=True, repr=False)
-    class Origin:
-        xyz: tuple[float, float, float]
-        rpy: tuple[float, float, float]
-
-        def __repr__(self):
-            return f"(xyz={self.xyz}, rpy={self.rpy})"
-
-
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Transform(abc.ABC):
     xyz: typing.Any
@@ -57,6 +37,26 @@ class JointOp(abc.ABC):
 
     def angular(self, data, axis, upper, lower):
         raise NotImplementedError
+
+
+class Attribute:
+    @dataclasses.dataclass(kw_only=True, frozen=True, repr=False)
+    class Limit:
+        lower: float
+        upper: float
+        effort: float
+        velocity: float
+
+        def __repr__(self):
+            return f"(lower={self.lower}, upper={self.upper}, effort={self.effort}, velocity={self.velocity})"
+
+    @dataclasses.dataclass(kw_only=True, frozen=True, repr=False)
+    class Origin:
+        xyz: tuple[float, float, float]
+        rpy: tuple[float, float, float]
+
+        def __repr__(self):
+            return f"(xyz={self.xyz}, rpy={self.rpy})"
 
 
 @dataclasses.dataclass(init=False, frozen=True)
@@ -353,6 +353,9 @@ class Spec:
     @functools.cached_property
     def base(self):
         return next(iter(next(iter(self.chain))))
+
+    def tokenize(self, file):
+        raise NotImplementedError
 
     def forward(
         self, data, *link, base=None
