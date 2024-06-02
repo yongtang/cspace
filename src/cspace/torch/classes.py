@@ -7,10 +7,7 @@ import torch
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class Transform:
-    xyz: torch.Tensor
-    rot: torch.Tensor
-
+class Transform(cspace.cspace.classes.Transform):
     @property
     def rpy(self):
         return cspace.torch.ops.rot_to_rpy(self.rot)
@@ -32,81 +29,72 @@ class Transform:
         return Transform(xyz=xyz, rot=rot)
 
 
+class JointOp(cspace.cspace.classes.JointOp):
+    def origin(self, data, xyz, rpy):
+        data = torch.as_tensor(data, dtype=torch.float64)
+
+        xyz = torch.as_tensor(
+            xyz,
+            device=data.device,
+            dtype=data.dtype,
+        )
+        rpy = torch.as_tensor(
+            rpy,
+            device=data.device,
+            dtype=data.dtype,
+        )
+        rot = cspace.torch.ops.rpy_to_rot(rpy)
+
+        return Transform(xyz=xyz, rot=rot)
+
+    def linear(self, data, axis, upper, lower):
+        data = torch.as_tensor(data, dtype=torch.float64)
+        data = data.unsqueeze(-1)
+        shape = data.shape
+
+        data = torch.clip(data, min=lower, max=upper)
+        axis = torch.as_tensor(
+            axis,
+            device=data.device,
+            dtype=data.dtype,
+        )
+        xyz = torch.multiply(data, axis)
+        rot = torch.eye(
+            3,
+            device=data.device,
+            dtype=data.dtype,
+        ).expand(*(shape[:-2] + tuple([-1, -1])))
+        return Transform(xyz=xyz, rot=rot)
+
+    def angular(self, data, axis, upper, lower):
+        data = torch.as_tensor(data, dtype=torch.float64)
+        data = data.unsqueeze(-1)
+        shape = data.shape
+
+        xyz = torch.as_tensor(
+            (0.0, 0.0, 0.0),
+            device=data.device,
+            dtype=data.dtype,
+        ).expand(*(shape[:-1] + tuple([-1])))
+        data = (
+            torch.clip(data, min=lower, max=upper)
+            if (upper is not None or lower is not None)
+            else data
+        )
+        axis = torch.as_tensor(
+            axis,
+            device=data.device,
+            dtype=data.dtype,
+        )
+        rpy = torch.multiply(data, axis)
+        rot = cspace.torch.ops.rpy_to_rot(rpy)
+        return Transform(xyz=xyz, rot=rot)
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Spec(cspace.cspace.classes.Spec):
     def __post_init__(self):
         super().__post_init__()
-
-        def f_joint(joint, data):
-            data = torch.as_tensor(data, dtype=torch.float64)
-            data = data.unsqueeze(-1)
-
-            shape = data.shape
-
-            xyz = torch.as_tensor(
-                joint.origin.xyz,
-                device=data.device,
-                dtype=torch.float64,
-            )
-            rpy = torch.as_tensor(
-                joint.origin.rpy,
-                device=data.device,
-                dtype=torch.float64,
-            )
-            rot = cspace.torch.ops.rpy_to_rot(rpy)
-
-            transform = Transform(xyz=xyz, rot=rot)
-
-            if isinstance(
-                joint,
-                (
-                    cspace.cspace.classes.Revolute,
-                    cspace.cspace.classes.Prismatic,
-                    cspace.cspace.classes.Continuous,
-                ),
-            ):
-                if isinstance(
-                    joint,
-                    (
-                        cspace.cspace.classes.Revolute,
-                        cspace.cspace.classes.Prismatic,
-                    ),
-                ):
-                    data = torch.clip(
-                        data,
-                        min=joint.limit.lower,
-                        max=joint.limit.upper,
-                    )
-
-                axis = torch.as_tensor(
-                    joint.axis,
-                    device=data.device,
-                    dtype=torch.float64,
-                )
-                data = torch.multiply(data, axis)
-                if isinstance(
-                    joint,
-                    (
-                        cspace.cspace.classes.Revolute,
-                        cspace.cspace.classes.Continuous,
-                    ),
-                ):
-                    xyz = torch.as_tensor(
-                        (0.0, 0.0, 0.0),
-                        device=data.device,
-                        dtype=torch.float64,
-                    ).expand(*(shape[:-1] + tuple([-1])))
-                    rot = cspace.torch.ops.rpy_to_rot(data)
-                else:
-                    xyz = data
-                    rot = torch.eye(
-                        3,
-                        device=data.device,
-                        dtype=torch.float64,
-                    ).expand(*(shape[:-2] + tuple([-1, -1])))
-                transform = transform * Transform(xyz=xyz, rot=rot)
-
-            return transform
 
         def f_link(spec, data, link, base=None):
             def f_transform(spec, data, name, forward):
@@ -143,5 +131,5 @@ class Spec(cspace.cspace.classes.Spec):
             )
 
         for joint in self.joint:
-            object.__setattr__(joint, "function", f_joint)
+            object.__setattr__(joint, "op", JointOp())
         object.__setattr__(self, "function", f_spec)

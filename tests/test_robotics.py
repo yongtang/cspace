@@ -16,6 +16,10 @@ def test_spec(device, urdf_file):
                 xyz=(0, -0.22, 0.25),
                 rpy=(0, 0, 0),
             ),
+            axis=(1, 0, 0),
+            limit=cspace.cspace.classes.Attribute.Limit(
+                lower=0.0, upper=0.0, effort=0.0, velocity=0.0
+            ),
         ),
         "right_base_joint": cspace.cspace.classes.Fixed(
             name="right_base_joint",
@@ -24,6 +28,10 @@ def test_spec(device, urdf_file):
             origin=cspace.cspace.classes.Attribute.Origin(
                 xyz=(0, 0, -0.6),
                 rpy=(0, 0, 0),
+            ),
+            axis=(1, 0, 0),
+            limit=cspace.cspace.classes.Attribute.Limit(
+                lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
         "right_front_wheel_joint": cspace.cspace.classes.Continuous(
@@ -35,6 +43,9 @@ def test_spec(device, urdf_file):
                 rpy=(0, 0, 0),
             ),
             axis=(0, 1, 0),
+            limit=cspace.cspace.classes.Attribute.Limit(
+                lower=0.0, upper=0.0, effort=0.0, velocity=0.0
+            ),
         ),
         "right_back_wheel_joint": cspace.cspace.classes.Continuous(
             name="right_back_wheel_joint",
@@ -45,6 +56,9 @@ def test_spec(device, urdf_file):
                 rpy=(0, 0, 0),
             ),
             axis=(0, 1, 0),
+            limit=cspace.cspace.classes.Attribute.Limit(
+                lower=0.0, upper=0.0, effort=0.0, velocity=0.0
+            ),
         ),
         "base_to_left_leg": cspace.cspace.classes.Fixed(
             name="base_to_left_leg",
@@ -54,6 +68,10 @@ def test_spec(device, urdf_file):
                 xyz=(0, 0.22, 0.25),
                 rpy=(0, 0, 0),
             ),
+            axis=(1, 0, 0),
+            limit=cspace.cspace.classes.Attribute.Limit(
+                lower=0.0, upper=0.0, effort=0.0, velocity=0.0
+            ),
         ),
         "left_base_joint": cspace.cspace.classes.Fixed(
             name="left_base_joint",
@@ -62,6 +80,10 @@ def test_spec(device, urdf_file):
             origin=cspace.cspace.classes.Attribute.Origin(
                 xyz=(0, 0, -0.6),
                 rpy=(0, 0, 0),
+            ),
+            axis=(1, 0, 0),
+            limit=cspace.cspace.classes.Attribute.Limit(
+                lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
         "left_front_wheel_joint": cspace.cspace.classes.Continuous(
@@ -73,6 +95,9 @@ def test_spec(device, urdf_file):
                 rpy=(0, 0, 0),
             ),
             axis=(0, 1, 0),
+            limit=cspace.cspace.classes.Attribute.Limit(
+                lower=0.0, upper=0.0, effort=0.0, velocity=0.0
+            ),
         ),
         "left_back_wheel_joint": cspace.cspace.classes.Continuous(
             name="left_back_wheel_joint",
@@ -83,6 +108,9 @@ def test_spec(device, urdf_file):
                 rpy=(0, 0, 0),
             ),
             axis=(0, 1, 0),
+            limit=cspace.cspace.classes.Attribute.Limit(
+                lower=0.0, upper=0.0, effort=0.0, velocity=0.0
+            ),
         ),
         "gripper_extension": cspace.cspace.classes.Prismatic(
             name="gripper_extension",
@@ -118,6 +146,10 @@ def test_spec(device, urdf_file):
                 xyz=(0, 0, 0),
                 rpy=(0, 0, 0),
             ),
+            axis=(1, 0, 0),
+            limit=cspace.cspace.classes.Attribute.Limit(
+                lower=0.0, upper=0.0, effort=0.0, velocity=0.0
+            ),
         ),
         "right_gripper_joint": cspace.cspace.classes.Revolute(
             name="right_gripper_joint",
@@ -140,6 +172,10 @@ def test_spec(device, urdf_file):
                 xyz=(0, 0, 0),
                 rpy=(0, 0, 0),
             ),
+            axis=(1, 0, 0),
+            limit=cspace.cspace.classes.Attribute.Limit(
+                lower=0.0, upper=0.0, effort=0.0, velocity=0.0
+            ),
         ),
         "head_swivel": cspace.cspace.classes.Continuous(
             name="head_swivel",
@@ -150,6 +186,9 @@ def test_spec(device, urdf_file):
                 rpy=(0, 0, 0),
             ),
             axis=(0, 0, 1),
+            limit=cspace.cspace.classes.Attribute.Limit(
+                lower=0.0, upper=0.0, effort=0.0, velocity=0.0
+            ),
         ),
         "tobox": cspace.cspace.classes.Fixed(
             name="tobox",
@@ -158,6 +197,10 @@ def test_spec(device, urdf_file):
             origin=cspace.cspace.classes.Attribute.Origin(
                 xyz=(0.1814, 0, 0.1414),
                 rpy=(0, 0, 0),
+            ),
+            axis=(1, 0, 0),
+            limit=cspace.cspace.classes.Attribute.Limit(
+                lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
     }

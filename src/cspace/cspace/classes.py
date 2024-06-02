@@ -19,60 +19,114 @@ class Attribute:
 
     @dataclasses.dataclass(kw_only=True, frozen=True, repr=False)
     class Origin:
-        xyz: [float, float, float]
-        rpy: [float, float, float]
+        xyz: tuple[float, float, float]
+        rpy: tuple[float, float, float]
 
         def __repr__(self):
             return f"(xyz={self.xyz}, rpy={self.rpy})"
 
 
-@dataclasses.dataclass(init=False, frozen=True, repr=False)
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class Transform(abc.ABC):
+    xyz: typing.Any
+    rot: typing.Any
+
+    @property
+    def rpy(self):
+        raise NotImplementedError
+
+    @property
+    def qua(self):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def inverse(self):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def __mul__(self, other):
+        raise NotImplementedError
+
+
+class JointOp(abc.ABC):
+    def origin(self, data, xyz, rpy):
+        raise NotImplementedError
+
+    def linear(self, data, axis, upper, lower):
+        raise NotImplementedError
+
+    def angular(self, data, axis, upper, lower):
+        raise NotImplementedError
+
+
+@dataclasses.dataclass(init=False, frozen=True)
 class Joint(abc.ABC):
     name: str
     child: str
     parent: str
     origin: Attribute.Origin
-    function: typing.Callable | None = None
+    axis: tuple[int, int, int]
+    limit: Attribute.Limit
+    op: JointOp = JointOp()
 
+    @abc.abstractmethod
     def transform(self, data):
-        if self.function is None:
-            raise NotImplementedError
-        return self.function(self, data)
-
-    def __repr__(self):
         raise NotImplementedError
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class Fixed(Joint):
-    def __post_init__(self):
-        pass
+    def transform(self, data):
+        return self.op.origin(
+            data,
+            self.origin.xyz,
+            self.origin.rpy,
+        )
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class Revolute(Joint):
-    axis: tuple[int, int, int]
-    limit: Attribute.Limit
-
-    def __post_init__(self):
-        assert self.limit is not None
+    def transform(self, data):
+        return self.op.origin(
+            data,
+            self.origin.xyz,
+            self.origin.rpy,
+        ) * self.op.angular(
+            data,
+            self.axis,
+            self.limit.upper,
+            self.limit.lower,
+        )
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class Continuous(Joint):
-    axis: tuple[int, int, int]
-
-    def __post_init__(self):
-        pass
+    def transform(self, data):
+        return self.op.origin(
+            data,
+            self.origin.xyz,
+            self.origin.rpy,
+        ) * self.op.angular(
+            data,
+            self.axis,
+            None,
+            None,
+        )
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class Prismatic(Joint):
-    axis: tuple[int, int, int]
-    limit: Attribute.Limit
-
-    def __post_init__(self):
-        assert self.limit is not None
+    def transform(self, data):
+        return self.op.origin(
+            data,
+            self.origin.xyz,
+            self.origin.rpy,
+        ) * self.op.linear(
+            data,
+            self.axis,
+            self.limit.upper,
+            self.limit.lower,
+        )
 
 
 class JointCollection(tuple):
@@ -178,12 +232,18 @@ class Spec:
         def f_limit(e):
             entries = e.getElementsByTagName("limit")
             assert entries.length == 0 or entries.length == 1
-            if entries.length == 0:
-                return None
-            lower = entries.item(0).getAttribute("lower")
-            upper = entries.item(0).getAttribute("upper")
-            effort = entries.item(0).getAttribute("effort")
-            velocity = entries.item(0).getAttribute("velocity")
+            lower = (
+                "0" if entries.length == 0 else entries.item(0).getAttribute("lower")
+            )
+            upper = (
+                "0" if entries.length == 0 else entries.item(0).getAttribute("upper")
+            )
+            effort = (
+                "0" if entries.length == 0 else entries.item(0).getAttribute("effort")
+            )
+            velocity = (
+                "0" if entries.length == 0 else entries.item(0).getAttribute("velocity")
+            )
             lower = float(lower if lower else "0")
             upper = float(upper if upper else "0")
             effort = float(effort)
@@ -205,41 +265,20 @@ class Spec:
             axis = f_axis(e)
             limit = f_limit(e)
             mimic = f_mimic(e)
-            if f_attribute(e, "type") == "fixed":
-                return Fixed(
-                    name=name,
-                    child=child,
-                    parent=parent,
-                    origin=origin,
-                )
-            elif f_attribute(e, "type") == "revolute":
-                return Revolute(
-                    name=name,
-                    child=child,
-                    parent=parent,
-                    origin=origin,
-                    axis=axis,
-                    limit=limit,
-                )
-            elif f_attribute(e, "type") == "continuous":
-                return Continuous(
-                    name=name,
-                    child=child,
-                    parent=parent,
-                    origin=origin,
-                    axis=axis,
-                )
-            elif f_attribute(e, "type") == "prismatic":
-                return Prismatic(
-                    name=name,
-                    child=child,
-                    parent=parent,
-                    origin=origin,
-                    axis=axis,
-                    limit=limit,
-                )
-            else:
-                raise NotImplementedError(f_attribute(e, "type"))
+            classes = {
+                "fixed": Fixed,
+                "revolute": Revolute,
+                "continuous": Continuous,
+                "prismatic": Prismatic,
+            }
+            return classes.get(f_attribute(e, "type"))(
+                name=name,
+                child=child,
+                parent=parent,
+                origin=origin,
+                axis=axis,
+                limit=limit,
+            )
 
         def f_chain(entry, joint):
             chain = [entry]
