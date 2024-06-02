@@ -48,21 +48,24 @@ class JointOp(cspace.cspace.classes.JointOp):
         return Transform(xyz=xyz, rot=rot)
 
     def linear(self, data, axis, upper, lower):
+        assert len(axis) == 3
+        axis = [(index, sign) for index, sign in enumerate(axis) if sign]
+        assert len(axis) == 1
+        index, sign = next(iter(axis))
+        assert (sign == 1) or (sign == -1)
+
         data = torch.as_tensor(data, dtype=torch.float64)
         data = torch.clip(data, min=lower, max=upper)
+        data = data if sign > 0 else -data
+
         zero = torch.zeros_like(data)
 
-        assert len(axis) == 3 and len([e for e in axis if e]) == 1
-        index, sign = next(
-            iter([(index, sign) for index, sign in enumerate(axis) if sign])
-        )
         if index == 0:
             xyz = torch.stack((data, zero, zero), dim=-1)
         elif index == 1:
             xyz = torch.stack((zero, data, zero), dim=-1)
         else:
             xyz = torch.stack((zero, zero, data), dim=-1)
-        xyz = xyz if sign > 0 else -xyz
 
         rot = torch.eye(
             3,
@@ -73,21 +76,25 @@ class JointOp(cspace.cspace.classes.JointOp):
         return Transform(xyz=xyz, rot=rot)
 
     def angular(self, data, axis, upper, lower):
+        assert len(axis) == 3
+        axis = [(index, sign) for index, sign in enumerate(axis) if sign]
+        assert len(axis) == 1
+        index, sign = next(iter(axis))
+        assert (sign == 1) or (sign == -1)
+
         data = torch.as_tensor(data, dtype=torch.float64)
         data = (
             torch.clip(data, min=lower, max=upper)
             if (upper is not None or lower is not None)
             else data
         )
+        data = data if sign > 0 else -data
+
         zero = torch.zeros_like(data)
         one = torch.ones_like(data)
         sin = torch.sin(data)
         cos = torch.cos(data)
 
-        assert len(axis) == 3 and len([e for e in axis if e]) == 1
-        index, sign = next(
-            iter([(index, sign) for index, sign in enumerate(axis) if sign])
-        )
         if index == 0:
             rot = torch.stack(
                 (
@@ -133,7 +140,6 @@ class JointOp(cspace.cspace.classes.JointOp):
                 ),
                 dim=-1,
             )
-        rot = rot if sign > 0 else -rot
         rot = torch.unflatten(rot, -1, (3, 3))
 
         xyz = torch.as_tensor(
