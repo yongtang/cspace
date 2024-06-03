@@ -161,6 +161,10 @@ class ForwardOp(cspace.cspace.classes.ForwardOp):
         return Transform(xyz=xyz, rot=rot)
 
     def stack(self, *transform):
+        xyz = torch.stack(tuple(e.xyz for e in transform), dim=-2)
+        rot = torch.stack(tuple(e.rot for e in transform), dim=-3)
+
+        return Transform(xyz=xyz, rot=rot)
         return torch.stack(
             tuple(
                 map(
@@ -172,9 +176,6 @@ class ForwardOp(cspace.cspace.classes.ForwardOp):
         )
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class Spec(cspace.cspace.classes.Spec):
-    def __post_init__(self):
-        super().__post_init__()
-
-        object.__setattr__(self, "op", ForwardOp())
+class Spec:
+    def __new__(cls, description):
+        return cspace.cspace.classes.Spec(description=description, op=ForwardOp())

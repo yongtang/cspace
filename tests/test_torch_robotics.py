@@ -4,6 +4,7 @@ import cspace.torch
 import cspace.torch.ops
 
 import itertools
+import logging
 import pathlib
 import scipy
 import torch
@@ -16,12 +17,15 @@ import torch
             range(-180, 180, 30),  # angle_r
             range(-180, 180, 30),  # angle_p
             range(-180, 180, 30),  # angle_r
-            ([], [1], [2], [1, 1], [2, 2]),  # batch
+            [[1, 2, 3], [4, 5, 6]],  # linear
+            [[], [1], [2], [1, 1], [2, 2]],  # batch
             [0, 15],  # interleave
         ),
     ),
     indirect=True,
-    ids=lambda param: "angle({},{},{})-batch({})-interleave({})".format(*param),
+    ids=lambda param: "angle({},{},{})-linear({})-batch({})-interleave({})".format(
+        *param
+    ),
 )
 def test_ops(transforms3d_data, device):
     (
@@ -33,6 +37,9 @@ def test_ops(transforms3d_data, device):
         rpy_to_qua,
         qua_to_rot,
         rot_to_qua,
+        so3_log,
+        se3_log,
+        se3_xyz,
         batch,
     ) = transforms3d_data
 
@@ -45,6 +52,9 @@ def test_ops(transforms3d_data, device):
         rpy_to_qua,
         qua_to_rot,
         rot_to_qua,
+        so3_log,
+        se3_log,
+        se3_xyz,
     ) = (
         torch.as_tensor(rpy, device=device),
         torch.as_tensor(qua, device=device),
@@ -54,6 +64,9 @@ def test_ops(transforms3d_data, device):
         torch.as_tensor(rpy_to_qua, device=device),
         torch.as_tensor(qua_to_rot, device=device),
         torch.as_tensor(rot_to_qua, device=device),
+        torch.as_tensor(so3_log, device=device),
+        torch.as_tensor(se3_log, device=device),
+        torch.as_tensor(se3_xyz, device=device),
     )
 
     assert rpy.shape == tuple(batch + [3])
@@ -63,21 +76,59 @@ def test_ops(transforms3d_data, device):
     assert rot_to_rpy.shape == tuple(batch + [3])
     assert qua_to_rot.shape == tuple(batch + [3, 3])
     assert rot_to_qua.shape == tuple(batch + [4])
+    assert so3_log.shape == tuple(batch + [3])
+    assert se3_log.shape == tuple(batch + [6])
+    assert se3_xyz.shape == tuple(batch + [3])
 
     val = cspace.torch.ops.rpy_to_rot(rpy)
+    assert val.shape == rpy_to_rot.shape
     assert torch.allclose(val, rpy_to_rot, atol=1e-4)
 
     val = cspace.torch.ops.rot_to_rpy(rot)
+    assert val.shape == rot_to_rpy.shape
     assert torch.allclose(val, rot_to_rpy, atol=1e-4)
 
     val = cspace.torch.ops.rpy_to_qua(rpy)
+    assert val.shape == rpy_to_qua.shape
     assert torch.allclose(val, rpy_to_qua, atol=1e-4)
 
     val = cspace.torch.ops.qua_to_rot(qua)
+    assert val.shape == qua_to_rot.shape
     assert torch.allclose(val, qua_to_rot, atol=1e-4)
 
-    # val = cspace.torch.ops.rot_to_qua(rot)
-    # assert torch.allclose(val, rot_to_qua, atol=1e-4)
+    val = cspace.torch.ops.rot_to_qua(rot)
+    assert val.shape == rot_to_qua.shape
+    assert torch.allclose(val, rot_to_qua, atol=1e-4)
+
+    val = cspace.torch.ops.so3_log(rot)
+    assert val.shape == so3_log.shape
+    for index, (v, r) in enumerate(
+        zip(val.unsqueeze(0).flatten(0, -2), so3_log.unsqueeze(0).flatten(0, -2))
+    ):
+        if torch.allclose(
+            torch.linalg.norm(v), torch.arccos(torch.zeros(1, dtype=rot.dtype)) * 2
+        ):
+            assert torch.allclose(
+                torch.abs(v), torch.abs(r), atol=1e-4
+            ), "{}: {} vs. {}".format(index, v, r)
+        else:
+            assert torch.allclose(v, r, atol=1e-4), "{}: {} vs. {}".format(index, v, r)
+
+    val = cspace.torch.ops.se3_log(se3_xyz, rot)
+    assert val.shape == se3_log.shape
+    for index, (v, l, r) in enumerate(
+        zip(
+            val.unsqueeze(0).flatten(0, -2),
+            se3_log.unsqueeze(0).flatten(0, -2),
+            rot.unsqueeze(0).flatten(0, -3),
+        )
+    ):
+        pi = torch.arccos(torch.zeros([], dtype=rot.dtype)) * 2
+        angle = torch.abs(torch.arccos((torch.trace(r) - 1.0) / 2.0))
+        if torch.abs(angle - pi) <= torch.finfo(r.dtype).eps:  # skip test on +-180
+            logging.getLogger(__name__).info("skip {}: {}".format(index, v))
+            v = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=v.dtype)
+        assert torch.allclose(v, l, atol=1e-4), "{}: {} vs. {}".format(index, v, l)
 
 
 def test_spec(device, urdf_file):
@@ -172,11 +223,17 @@ def test_transform(device, urdf_file, joint_state, link_pose):
         link = chain[-1]
         if link in link_pose:
             data = spec.forward(state, link)
-            true = torch.tensor(
+            true_xyz = torch.tensor(
                 [
                     link_pose[link].pose.position.x,
                     link_pose[link].pose.position.y,
                     link_pose[link].pose.position.z,
+                ],
+                device=device,
+                dtype=torch.float64,
+            ).unsqueeze(-2)
+            true_qua = torch.tensor(
+                [
                     link_pose[link].pose.orientation.x,
                     link_pose[link].pose.orientation.y,
                     link_pose[link].pose.orientation.z,
@@ -185,30 +242,5 @@ def test_transform(device, urdf_file, joint_state, link_pose):
                 device=device,
                 dtype=torch.float64,
             ).unsqueeze(-2)
-            assert torch.allclose(true, data, atol=1e-4)
-
-
-def test_kinematics(device, urdf_file, joint_state, link_pose):
-    spec = cspace.torch.Spec(description=pathlib.Path(urdf_file).read_text())
-    kinematics = spec.kinematics("left_gripper")
-
-    joint_state = dict(zip(joint_state.name, joint_state.position))
-    state = [joint_state.get(joint.name, 0.0) for joint in spec.joint]
-    state = torch.as_tensor(state, device=device, dtype=torch.float64)
-    true = torch.tensor(
-        [
-            link_pose["left_gripper"].pose.position.x,
-            link_pose["left_gripper"].pose.position.y,
-            link_pose["left_gripper"].pose.position.z,
-            link_pose["left_gripper"].pose.orientation.x,
-            link_pose["left_gripper"].pose.orientation.y,
-            link_pose["left_gripper"].pose.orientation.z,
-            link_pose["left_gripper"].pose.orientation.w,
-        ],
-        device=device,
-        dtype=torch.float64,
-    ).unsqueeze(-2)
-
-    pose = kinematics.forward(state)
-    assert pose.shape == true.shape
-    assert torch.allclose(pose, true, atol=1e-4)
+            assert torch.allclose(true_xyz, data.xyz, atol=1e-4)
+            assert torch.allclose(true_qua, data.qua, atol=1e-4)

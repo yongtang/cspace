@@ -137,3 +137,92 @@ def rot_to_qua(rot):
     qua = torch.where(qua[..., 3:4] < 0.0, -qua, qua)
 
     return qua
+
+
+def so3_log(rot):
+    rot = torch.as_tensor(rot)
+    eps = torch.finfo(rot.dtype).eps
+
+    pi = torch.arccos(torch.zeros([], dtype=rot.dtype)) * 2
+
+    trace = torch.diagonal(rot, offset=0, dim1=-1, dim2=-2).sum(-1)
+
+    angle = torch.arccos((trace - 1.0) / 2.0)
+
+    angle = torch.unsqueeze(angle, dim=-1)
+
+    rx = rot[..., 2, 1] - rot[..., 1, 2]
+    ry = rot[..., 0, 2] - rot[..., 2, 0]
+    rz = rot[..., 1, 0] - rot[..., 0, 1]
+
+    axis = torch.stack((rx, ry, rz), dim=-1)
+
+    axis = axis / (torch.sin(angle) * 2.0)
+    axa = axis * angle
+
+    c0 = torch.abs(angle) > eps
+    axa = torch.where(c0, axa, torch.zeros_like(axa))
+
+    c1 = torch.abs(torch.abs(angle) - pi) > eps
+    axa = torch.where(
+        c1,
+        axa,
+        torch.stack(
+            (
+                torch.sqrt((rot[..., 0, 0] + 1.0) / 2.0) * pi,
+                torch.sqrt((rot[..., 1, 1] + 1.0) / 2.0) * pi,
+                torch.sqrt((rot[..., 2, 2] + 1.0) / 2.0) * pi,
+            ),
+            dim=-1,
+        ),
+    )
+
+    return axa
+
+
+def se3_log(xyz, rot):
+    xyz = torch.as_tensor(xyz)
+    rot = torch.as_tensor(rot, dtype=xyz.dtype)
+
+    eps = torch.finfo(rot.dtype).eps
+
+    axa = so3_log(rot)
+
+    axax, axay, axaz = torch.unbind(axa, dim=-1)
+    zero = torch.zeros_like(axax)
+
+    omega = torch.stack(
+        (
+            zero,
+            -axaz,
+            axay,
+            axaz,
+            zero,
+            -axax,
+            -axay,
+            axax,
+            zero,
+        ),
+        dim=-1,
+    )
+    omega = torch.unflatten(omega, -1, (3, 3))
+
+    theta = torch.linalg.norm(axa, dim=-1)
+    theta = torch.unsqueeze(theta, -1)
+
+    shape = omega.shape
+    bmm = torch.reshape(
+        torch.bmm(torch.reshape(omega, (-1, 3, 3)), torch.reshape(omega, (-1, 3, 3))),
+        shape,
+    )
+    value = (
+        1.0 - (theta * torch.cos(theta / 2.0)) / (2.0 * torch.sin(theta / 2.0))
+    ) / (theta * theta)
+    value = torch.unsqueeze(value, -1)
+    inv = torch.eye(3) - omega / 2.0 + value * bmm
+    shape = xyz.shape
+    bmm = torch.reshape(
+        torch.bmm(torch.reshape(inv, (-1, 3, 3)), torch.reshape(xyz, (-1, 3, 1))), shape
+    )
+    v = torch.where(torch.abs(theta) > eps, bmm, xyz)
+    return torch.concatenate((v, axa), dim=-1)

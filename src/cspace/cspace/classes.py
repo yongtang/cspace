@@ -55,6 +55,12 @@ class ForwardOp(abc.ABC):
         raise NotImplementedError
 
 
+class InverseModel(abc.ABC):
+    @abc.abstractmethod
+    def __call__(self, spec):
+        raise NotImplementedError
+
+
 class Attribute:
     @dataclasses.dataclass(kw_only=True, frozen=True, repr=False)
     class Limit:
@@ -320,7 +326,7 @@ class Spec:
                 itertools.chain.from_iterable(map(lambda e: [e.child, e.parent], joint))
             )
 
-            chain = ChainCollection([Chain(f_chain(e, joint)) for e in link])
+            chain = ChainCollection([Chain(f_chain(e, joint)) for e in sorted(link)])
             assert len({next(iter(e)) for e in chain}) == 1
 
             object.__setattr__(self, "joint", joint)
@@ -369,9 +375,6 @@ class Spec:
     def base(self):
         return next(iter(next(iter(self.chain))))
 
-    def tokenize(self, file):
-        raise NotImplementedError
-
     def forward(
         self, data, *link, base=None
     ):  # [..., joint] => [..., link, 7 (xyz+xyzw)]
@@ -401,31 +404,3 @@ class Spec:
         return self.op.stack(
             *tuple(f_link(self, data, item, base=base) for item in link)
         )
-
-    def kinematics(self, *link, base=None, model=None):
-        return Kinematics(spec=self, base=base, link=link, model=model)
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class Kinematics:
-    spec: Spec
-    base: str
-    link: tuple[str]
-    model: typing.Callable
-
-    def __post_init__(self):
-        assert (not self.base) or (self.base in self.spec.link)
-        assert (not self.link) or all([(item in self.spec.link) for item in self.link])
-        base = str(self.base) if self.base else self.spec.base
-        link = tuple(self.link) if self.link else self.spec.link
-        object.__setattr__(self, "base", base)
-        object.__setattr__(self, "link", link)
-
-    def forward(self, data):  # [..., joint] => [..., link, 7 (xyz+xyzw)]
-        return self.spec.forward(data, *self.link, base=self.base)
-
-    def inverse(self, pose):  # [..., link, 7 (xyz+xyzw)] => [..., joint]
-        if self.model is None:
-            raise NotImplementedError
-        assert pose.shape[-2] == len(self.link) and pose.shape[-1] == 7
-        return self.model(self, pose)
