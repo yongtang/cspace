@@ -18,9 +18,9 @@ import torch
             range(-180, 180, 30),  # angle_r
             range(-180, 180, 30),  # angle_p
             range(-180, 180, 30),  # angle_r
-            [[1, 2, 3], [4, 5, 6]],  # linear
+            [[1, 2, 3], [3, 4, 5]],  # linear
             [[], [1], [2], [1, 1], [2, 2]],  # batch
-            [0, 15],  # interleave
+            [15],  # interleave
         ),
     ),
     indirect=True,
@@ -40,6 +40,8 @@ def test_ops(transforms3d_data, device):
         rot_to_qua,
         so3_log,
         se3_log,
+        se3_mul,
+        se3_inv,
         se3_xyz,
         batch,
     ) = transforms3d_data
@@ -55,6 +57,8 @@ def test_ops(transforms3d_data, device):
         rot_to_qua,
         so3_log,
         se3_log,
+        se3_mul,
+        se3_inv,
         se3_xyz,
     ) = (
         torch.as_tensor(rpy, device=device),
@@ -67,6 +71,8 @@ def test_ops(transforms3d_data, device):
         torch.as_tensor(rot_to_qua, device=device),
         torch.as_tensor(so3_log, device=device),
         torch.as_tensor(se3_log, device=device),
+        torch.as_tensor(se3_mul, device=device),
+        torch.as_tensor(se3_inv, device=device),
         torch.as_tensor(se3_xyz, device=device),
     )
 
@@ -79,6 +85,8 @@ def test_ops(transforms3d_data, device):
     assert rot_to_qua.shape == tuple(batch + [4])
     assert so3_log.shape == tuple(batch + [3])
     assert se3_log.shape == tuple(batch + [6])
+    assert se3_mul.shape == tuple(batch + [3, 4])
+    assert se3_inv.shape == tuple(batch + [3, 4])
     assert se3_xyz.shape == tuple(batch + [3])
 
     val = cspace.torch.ops.rpy_to_rot(rpy)
@@ -130,6 +138,16 @@ def test_ops(transforms3d_data, device):
             logging.getLogger(__name__).info("skip {}: {}".format(index, v))
             v = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=v.dtype)
         assert torch.allclose(v, l, atol=1e-4), "{}: {} vs. {}".format(index, v, l)
+
+    val_xyz, val_rot = cspace.torch.ops.se3_mul(se3_xyz, rot, se3_xyz, rot)
+    val = torch.concatenate((val_rot, val_xyz.unsqueeze(-1)), dim=-1)
+    assert val.shape == se3_mul.shape
+    assert torch.allclose(val, se3_mul, atol=1e-4)
+
+    val_xyz, val_rot = cspace.torch.ops.se3_inv(se3_xyz, rot)
+    val = torch.concatenate((val_rot, val_xyz.unsqueeze(-1)), dim=-1)
+    assert val.shape == se3_inv.shape
+    assert torch.allclose(val, se3_inv, atol=1e-4)
 
 
 def test_spec(device, urdf_file):

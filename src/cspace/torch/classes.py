@@ -5,9 +5,14 @@ import torch
 
 
 class LinkPose(cspace.cspace.classes.LinkPose):
-    def __init__(self, position, orientation):
+    def __init__(self, base, position, orientation):
+        self._base_ = base
         self._position_ = position
         self._orientation_ = orientation
+
+    @property
+    def base(self):
+        return self._base_
 
     @property
     def position(self):
@@ -19,17 +24,30 @@ class LinkPose(cspace.cspace.classes.LinkPose):
 
 
 class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
-    def __init__(self, name, transform):
+    def __init__(self, base, name, position, orientation):
+        self._base_ = base
         self._name_ = name
-        self._transform_ = transform
+        self._name_ = tuple(name)
+        self._position_ = torch.as_tensor(position, dtype=torch.float64)
+        assert len(self._name_) == self._position_.shape[-1]
+        self._orientation_ = torch.as_tensor(orientation, dtype=torch.float64)
+        assert len(self._name_) == self._orientation_.shape[-1]
+
+    @property
+    def base(self):
+        return self._base_
 
     @property
     def name(self):
         return self._name_
 
     def __call__(self, name):
-        transform = self._transform_[self.name.index(name)]
-        return LinkPose(transform.xyz, transform.qua)
+        index = self.name.index(name)
+        return LinkPose(
+            self.base,
+            torch.select(self._position_, dim=-1, index=index),
+            torch.select(self._orientation_, dim=-1, index=index),
+        )
 
 
 class JointState(cspace.cspace.classes.JointState):
@@ -223,9 +241,10 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
     def forward(self, spec, *link, base=None):
         base = base if base else spec.base
         link = link if len(link) else spec.link
-        return LinkPoseCollection(
-            link, tuple(self.transform(spec, item, base) for item in link)
-        )
+        entries = tuple(self.transform(spec, item, base) for item in link)
+        position = torch.stack(tuple(entry.xyz for entry in entries), dim=-1)
+        orientation = torch.stack(tuple(entry.qua for entry in entries), dim=-1)
+        return LinkPoseCollection(base, link, position, orientation)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -239,13 +258,9 @@ class Transform(cspace.cspace.classes.Transform):
         return cspace.torch.ops.rot_to_qua(self.rot)
 
     def inverse(self):
-        assert self.rot.ndim == 2 and other.rot.ndim == 2
-        xyz = torch.mm(self.rot.transpose(), self.xyz)
-        rot = self.rot.transpose()
+        xyz, rot = cspace.torch.ops.se3_inv(self.xyz, self.rot)
         return Transform(xyz=xyz, rot=rot)
 
     def __mul__(self, other):
-        assert self.rot.ndim == 2 and other.rot.ndim == 2
-        xyz = torch.mm(self.rot, other.xyz.unsqueeze(-1)).squeeze(-1) + self.xyz
-        rot = torch.mm(self.rot, other.rot)
+        xyz, rot = cspace.torch.ops.se3_mul(self.xyz, self.rot, other.xyz, other.rot)
         return Transform(xyz=xyz, rot=rot)

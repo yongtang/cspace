@@ -88,6 +88,26 @@ def transforms3d_data(request):
 
         return numpy.concatenate((t, r))
 
+    def f_se3_mul(euler, linear):
+        t = numpy.expand_dims(numpy.array(linear), axis=-1)
+        r = numpy.array(transforms3d.euler.euler2mat(euler[0], euler[1], euler[2]))
+        m = numpy.concatenate(
+            (numpy.concatenate((r, t), axis=-1), numpy.array([[0, 0, 0, 1]]))
+        )
+        m = numpy.matrix(m)
+        m = m * m
+        m = numpy.array(m)
+        return m[:3, :]
+
+    def f_se3_inv(euler, linear):
+        t = numpy.expand_dims(numpy.array(linear), axis=-1)
+        r = numpy.array(transforms3d.euler.euler2mat(euler[0], euler[1], euler[2]))
+        m = numpy.concatenate(
+            (numpy.concatenate((r, t), axis=-1), numpy.array([[0, 0, 0, 1]]))
+        )
+        m = numpy.array(scipy.linalg.inv(m))
+        return m[:3, :]
+
     def f_se3_xyz(euler, linear):
         return numpy.array(linear)
 
@@ -148,6 +168,8 @@ def transforms3d_data(request):
         f_so3_entries(f_rot_to_qua, angle_r, angle_p, angle_y, batch, interleave),
         f_so3_entries(f_so3_log, angle_r, angle_p, angle_y, batch, interleave),
         f_se3_entries(f_se3_log, angle_r, angle_p, angle_y, linear, batch, interleave),
+        f_se3_entries(f_se3_mul, angle_r, angle_p, angle_y, linear, batch, interleave),
+        f_se3_entries(f_se3_inv, angle_r, angle_p, angle_y, linear, batch, interleave),
         f_se3_entries(f_se3_xyz, angle_r, angle_p, angle_y, linear, batch, interleave),
         batch,
     )

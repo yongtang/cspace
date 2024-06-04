@@ -183,6 +183,9 @@ def so3_log(rot):
 def se3_log(xyz, rot):
     xyz = torch.as_tensor(xyz)
     rot = torch.as_tensor(rot, dtype=xyz.dtype)
+    batch = set((xyz.shape[:-1], rot.shape[:-2]))
+    assert len(batch) == 1
+    batch = list(next(iter(batch)))
 
     eps = torch.finfo(rot.dtype).eps
 
@@ -226,3 +229,47 @@ def se3_log(xyz, rot):
     )
     v = torch.where(torch.abs(theta) > eps, bmm, xyz)
     return torch.concatenate((v, axa), dim=-1)
+
+
+def se3_mul(xyz_a, rot_a, xyz_b, rot_b):
+    xyz_a = torch.as_tensor(xyz_a)
+    rot_a = torch.as_tensor(rot_a, dtype=xyz_a.dtype)
+    xyz_b = torch.as_tensor(xyz_b)
+    rot_b = torch.as_tensor(rot_b, dtype=xyz_b.dtype)
+    batch = set(
+        (xyz_a.shape[:-1], rot_a.shape[:-2], xyz_b.shape[:-1], rot_b.shape[:-2])
+    )
+    assert len(batch) == 1
+    batch = list(next(iter(batch)))
+
+    xyz_a = torch.reshape(xyz_a, [-1, 3])
+    rot_a = torch.reshape(rot_a, [-1, 3, 3])
+    xyz_b = torch.reshape(xyz_b, [-1, 3])
+    rot_b = torch.reshape(rot_b, [-1, 3, 3])
+
+    xyz = torch.bmm(rot_a, xyz_b.unsqueeze(-1)).squeeze(-1) + xyz_a
+    rot = torch.bmm(rot_a, rot_b)
+
+    xyz = torch.reshape(xyz, batch + [3])
+    rot = torch.reshape(rot, batch + [3, 3])
+
+    return xyz, rot
+
+
+def se3_inv(xyz, rot):
+    xyz = torch.as_tensor(xyz)
+    rot = torch.as_tensor(rot, dtype=xyz.dtype)
+    batch = set((xyz.shape[:-1], rot.shape[:-2]))
+    assert len(batch) == 1
+    batch = list(next(iter(batch)))
+
+    xyz = torch.reshape(xyz, [-1, 3])
+    rot = torch.reshape(rot, [-1, 3, 3])
+
+    rot = torch.transpose(rot, -2, -1)
+    xyz = -torch.bmm(rot, xyz.unsqueeze(-1)).squeeze(-1)
+
+    xyz = torch.reshape(xyz, batch + [3])
+    rot = torch.reshape(rot, batch + [3, 3])
+
+    return xyz, rot

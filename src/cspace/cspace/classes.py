@@ -10,6 +10,11 @@ import xml.dom.minidom
 class LinkPose(abc.ABC):
     @property
     @abc.abstractmethod
+    def base(self):
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
     def position(self):
         raise NotImplementedError
 
@@ -20,6 +25,11 @@ class LinkPose(abc.ABC):
 
 
 class LinkPoseCollection(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def base(self):
+        raise NotImplementedError
+
     @property
     @abc.abstractmethod
     def name(self):
