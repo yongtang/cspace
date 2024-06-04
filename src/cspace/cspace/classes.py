@@ -7,6 +7,75 @@ import dataclasses
 import xml.dom.minidom
 
 
+class LinkPose(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def position(self):
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def orientation(self):
+        raise NotImplementedError
+
+
+class LinkPoseCollection(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def name(self):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def __call__(self, name):
+        raise NotImplementedError
+
+
+class JointState(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def position(self):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def transform(self, joint):
+        raise NotImplementedError
+
+
+class JointStateCollection(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def name(self):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def __call__(self, name):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def identity(self):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def forward(self, spec, *link, base=None):
+        raise NotImplementedError
+
+    def transform(self, spec, link, base):
+        def f_transform(spec, name, forward):
+            state = self.__call__(name)
+            e_transform = state.transform(spec.joint(name))
+            e_transform = e_transform if forward else e_transform.inverse()
+            return e_transform
+
+        return functools.reduce(
+            operator.mul,
+            [
+                f_transform(spec, name, forward)
+                for name, forward in reversed(spec.route(link, base))
+            ],
+            self.identity(),
+        )
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Transform(abc.ABC):
     xyz: typing.Any
@@ -26,38 +95,6 @@ class Transform(abc.ABC):
 
     @abc.abstractmethod
     def __mul__(self, other):
-        raise NotImplementedError
-
-
-class ForwardOp(abc.ABC):
-    @abc.abstractmethod
-    def select(self, data):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def identity(self, data):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def origin(self, data, xyz, rpy):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def linear(self, data, axis, upper, lower):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def angular(self, data, axis, upper, lower):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def stack(self, *transform):
-        raise NotImplementedError
-
-
-class InverseModel(abc.ABC):
-    @abc.abstractmethod
-    def __call__(self, spec):
         raise NotImplementedError
 
 
@@ -81,73 +118,18 @@ class Attribute:
             return f"(xyz={self.xyz}, rpy={self.rpy})"
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class Joint(abc.ABC):
     name: str
+    type: str
     child: str
     parent: str
     origin: Attribute.Origin
     axis: tuple[int, int, int]
     limit: Attribute.Limit
 
-    @abc.abstractmethod
-    def transform(self, op, data):
-        raise NotImplementedError
-
-
-@dataclasses.dataclass(kw_only=True, frozen=True)
-class Fixed(Joint):
-    def transform(self, op, data):
-        return op.origin(
-            data,
-            self.origin.xyz,
-            self.origin.rpy,
-        )
-
-
-@dataclasses.dataclass(kw_only=True, frozen=True)
-class Revolute(Joint):
-    def transform(self, op, data):
-        return op.origin(
-            data,
-            self.origin.xyz,
-            self.origin.rpy,
-        ) * op.angular(
-            data,
-            self.axis,
-            self.limit.upper,
-            self.limit.lower,
-        )
-
-
-@dataclasses.dataclass(kw_only=True, frozen=True)
-class Continuous(Joint):
-    def transform(self, op, data):
-        return op.origin(
-            data,
-            self.origin.xyz,
-            self.origin.rpy,
-        ) * op.angular(
-            data,
-            self.axis,
-            None,
-            None,
-        )
-
-
-@dataclasses.dataclass(kw_only=True, frozen=True)
-class Prismatic(Joint):
-    def transform(self, op, data):
-        return op.origin(
-            data,
-            self.origin.xyz,
-            self.origin.rpy,
-        ) * op.linear(
-            data,
-            self.axis,
-            self.limit.upper,
-            self.limit.lower,
-        )
+    def __post_init__(self):
+        pass
 
 
 class JointCollection(tuple):
@@ -206,7 +188,6 @@ class Spec:
     description: str = dataclasses.field(repr=False)
     chain: ChainCollection = dataclasses.field(init=False)
     joint: JointCollection = dataclasses.field(init=False)
-    op: ForwardOp | None = None
 
     def __post_init__(self):
         def f_attribute(e, name):
@@ -286,14 +267,9 @@ class Spec:
             axis = f_axis(e)
             limit = f_limit(e)
             mimic = f_mimic(e)
-            classes = {
-                "fixed": Fixed,
-                "revolute": Revolute,
-                "continuous": Continuous,
-                "prismatic": Prismatic,
-            }
-            return classes.get(f_attribute(e, "type"))(
+            return Joint(
                 name=name,
+                type=f_attribute(e, "type"),
                 child=child,
                 parent=parent,
                 origin=origin,
@@ -375,32 +351,7 @@ class Spec:
     def base(self):
         return next(iter(next(iter(self.chain))))
 
-    def forward(
-        self, data, *link, base=None
-    ):  # [..., joint] => [..., link, 7 (xyz+xyzw)]
-        if self.op is None:
-            raise NotImplementedError
+    def forward(self, state, *link, base=None):
         base = base if base else self.base
         link = link if len(link) else self.link
-
-        def f_link(self, data, link, base=None):
-            def f_transform(self, data, name, forward):
-                index = self.joint.index(name)
-                value = self.op.select(data, index)
-                transform = self.joint(name).transform(self.op, value)
-                transform = transform if forward else transform.inverse()
-                return transform
-
-            transform = functools.reduce(
-                operator.mul,
-                [
-                    f_transform(self, data, name, forward)
-                    for name, forward in reversed(self.route(link, base))
-                ],
-                self.op.identity(self.op.select(data, 0)),
-            )
-            return transform
-
-        return self.op.stack(
-            *tuple(f_link(self, data, item, base=base) for item in link)
-        )
+        return state.forward(self, *link, base=base)

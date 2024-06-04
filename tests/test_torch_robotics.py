@@ -1,7 +1,8 @@
 import pytest
 
-import cspace.torch
 import cspace.torch.ops
+import cspace.torch.classes
+import cspace.cspace.classes
 
 import itertools
 import logging
@@ -132,7 +133,7 @@ def test_ops(transforms3d_data, device):
 
 
 def test_spec(device, urdf_file):
-    spec = cspace.torch.Spec(description=pathlib.Path(urdf_file).read_text())
+    spec = cspace.cspace.classes.Spec(description=pathlib.Path(urdf_file).read_text())
 
     joint = spec.joint("base_to_right_leg")
 
@@ -144,9 +145,11 @@ def test_spec(device, urdf_file):
         dtype=torch.float64,
     )
 
-    state = torch.tensor(1.0, device=device, dtype=torch.float64)
+    state = cspace.torch.classes.JointState(
+        torch.tensor(1.0, device=device, dtype=torch.float64)
+    )
 
-    transform = joint.transform(cspace.torch.classes.ForwardOp(), state)
+    transform = state.transform(joint)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -163,9 +166,11 @@ def test_spec(device, urdf_file):
         dtype=torch.float64,
     )
 
-    state = torch.tensor(1.0, device=device, dtype=torch.float64)
+    state = cspace.torch.classes.JointState(
+        torch.tensor(1.0, device=device, dtype=torch.float64)
+    )
 
-    transform = joint.transform(cspace.torch.classes.ForwardOp(), state)
+    transform = state.transform(joint)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -182,9 +187,11 @@ def test_spec(device, urdf_file):
         dtype=torch.float64,
     )
 
-    state = torch.tensor(1.0, device=device, dtype=torch.float64)
+    state = cspace.torch.classes.JointState(
+        torch.tensor(1.0, device=device, dtype=torch.float64)
+    )
 
-    transform = joint.transform(cspace.torch.classes.ForwardOp(), state)
+    transform = state.transform(joint)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -203,9 +210,11 @@ def test_spec(device, urdf_file):
         dtype=torch.float64,
     )
 
-    state = torch.tensor(-1.0, device=device, dtype=torch.float64)
+    state = cspace.torch.classes.JointState(
+        torch.tensor(-1.0, device=device, dtype=torch.float64)
+    )
 
-    transform = joint.transform(cspace.torch.classes.ForwardOp(), state)
+    transform = state.transform(joint)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -213,17 +222,19 @@ def test_spec(device, urdf_file):
 
 
 def test_transform(device, urdf_file, joint_state, link_pose):
-    spec = cspace.torch.Spec(description=pathlib.Path(urdf_file).read_text())
+    spec = cspace.cspace.classes.Spec(description=pathlib.Path(urdf_file).read_text())
 
     joint_state = dict(zip(joint_state.name, joint_state.position))
-    state = [joint_state.get(joint.name, 0.0) for joint in spec.joint]
-    state = torch.as_tensor(state, dtype=torch.float64, device=device)
+    name = tuple(joint.name for joint in spec.joint if joint.type != "fixed")
+    position = torch.tensor(
+        tuple(joint_state[entry] for entry in name), dtype=torch.float64, device=device
+    )
+    state = cspace.torch.classes.JointStateCollection(name, position)
 
-    for chain in spec.chain:
-        link = chain[-1]
+    for link in spec.link:
         if link in link_pose:
-            data = spec.forward(state, link)
-            true_xyz = torch.tensor(
+            pose = spec.forward(state, link)
+            true_position = torch.tensor(
                 [
                     link_pose[link].pose.position.x,
                     link_pose[link].pose.position.y,
@@ -231,8 +242,8 @@ def test_transform(device, urdf_file, joint_state, link_pose):
                 ],
                 device=device,
                 dtype=torch.float64,
-            ).unsqueeze(-2)
-            true_qua = torch.tensor(
+            )
+            true_orientation = torch.tensor(
                 [
                     link_pose[link].pose.orientation.x,
                     link_pose[link].pose.orientation.y,
@@ -241,6 +252,8 @@ def test_transform(device, urdf_file, joint_state, link_pose):
                 ],
                 device=device,
                 dtype=torch.float64,
-            ).unsqueeze(-2)
-            assert torch.allclose(true_xyz, data.xyz, atol=1e-4)
-            assert torch.allclose(true_qua, data.qua, atol=1e-4)
+            )
+            assert true_position.shape == pose(link).position.shape
+            assert torch.allclose(true_position, pose(link).position, atol=1e-4)
+            assert true_orientation.shape == pose(link).orientation.shape
+            assert torch.allclose(true_orientation, pose(link).orientation, atol=1e-4)

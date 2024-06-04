@@ -8,8 +8,9 @@ def test_spec(device, urdf_file):
     spec = cspace.cspace.classes.Spec(description=pathlib.Path(urdf_file).read_text())
 
     joints = {
-        "base_to_right_leg": cspace.cspace.classes.Fixed(
+        "base_to_right_leg": cspace.cspace.classes.Joint(
             name="base_to_right_leg",
+            type="fixed",
             child="right_leg",
             parent="base_link",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -21,8 +22,9 @@ def test_spec(device, urdf_file):
                 lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
-        "right_base_joint": cspace.cspace.classes.Fixed(
+        "right_base_joint": cspace.cspace.classes.Joint(
             name="right_base_joint",
+            type="fixed",
             child="right_base",
             parent="right_leg",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -34,8 +36,9 @@ def test_spec(device, urdf_file):
                 lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
-        "right_front_wheel_joint": cspace.cspace.classes.Continuous(
+        "right_front_wheel_joint": cspace.cspace.classes.Joint(
             name="right_front_wheel_joint",
+            type="continuous",
             child="right_front_wheel",
             parent="right_base",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -47,8 +50,9 @@ def test_spec(device, urdf_file):
                 lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
-        "right_back_wheel_joint": cspace.cspace.classes.Continuous(
+        "right_back_wheel_joint": cspace.cspace.classes.Joint(
             name="right_back_wheel_joint",
+            type="continuous",
             child="right_back_wheel",
             parent="right_base",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -60,8 +64,9 @@ def test_spec(device, urdf_file):
                 lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
-        "base_to_left_leg": cspace.cspace.classes.Fixed(
+        "base_to_left_leg": cspace.cspace.classes.Joint(
             name="base_to_left_leg",
+            type="fixed",
             child="left_leg",
             parent="base_link",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -73,8 +78,9 @@ def test_spec(device, urdf_file):
                 lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
-        "left_base_joint": cspace.cspace.classes.Fixed(
+        "left_base_joint": cspace.cspace.classes.Joint(
             name="left_base_joint",
+            type="fixed",
             child="left_base",
             parent="left_leg",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -86,8 +92,9 @@ def test_spec(device, urdf_file):
                 lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
-        "left_front_wheel_joint": cspace.cspace.classes.Continuous(
+        "left_front_wheel_joint": cspace.cspace.classes.Joint(
             name="left_front_wheel_joint",
+            type="continuous",
             child="left_front_wheel",
             parent="left_base",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -99,8 +106,9 @@ def test_spec(device, urdf_file):
                 lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
-        "left_back_wheel_joint": cspace.cspace.classes.Continuous(
+        "left_back_wheel_joint": cspace.cspace.classes.Joint(
             name="left_back_wheel_joint",
+            type="continuous",
             child="left_back_wheel",
             parent="left_base",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -112,8 +120,9 @@ def test_spec(device, urdf_file):
                 lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
-        "gripper_extension": cspace.cspace.classes.Prismatic(
+        "gripper_extension": cspace.cspace.classes.Joint(
             name="gripper_extension",
+            type="prismatic",
             child="gripper_pole",
             parent="base_link",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -125,8 +134,9 @@ def test_spec(device, urdf_file):
                 lower=-0.38, upper=0, effort=1000.0, velocity=0.5
             ),
         ),
-        "left_gripper_joint": cspace.cspace.classes.Revolute(
+        "left_gripper_joint": cspace.cspace.classes.Joint(
             name="left_gripper_joint",
+            type="revolute",
             child="left_gripper",
             parent="gripper_pole",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -138,8 +148,9 @@ def test_spec(device, urdf_file):
                 lower=0.0, upper=0.548, effort=1000.0, velocity=0.5
             ),
         ),
-        "left_tip_joint": cspace.cspace.classes.Fixed(
+        "left_tip_joint": cspace.cspace.classes.Joint(
             name="left_tip_joint",
+            type="fixed",
             child="left_tip",
             parent="left_gripper",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -151,8 +162,9 @@ def test_spec(device, urdf_file):
                 lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
-        "right_gripper_joint": cspace.cspace.classes.Revolute(
+        "right_gripper_joint": cspace.cspace.classes.Joint(
             name="right_gripper_joint",
+            type="revolute",
             child="right_gripper",
             parent="gripper_pole",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -164,8 +176,9 @@ def test_spec(device, urdf_file):
                 lower=0.0, upper=0.548, effort=1000.0, velocity=0.5
             ),
         ),
-        "right_tip_joint": cspace.cspace.classes.Fixed(
+        "right_tip_joint": cspace.cspace.classes.Joint(
             name="right_tip_joint",
+            type="fixed",
             child="right_tip",
             parent="right_gripper",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -177,8 +190,9 @@ def test_spec(device, urdf_file):
                 lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
-        "head_swivel": cspace.cspace.classes.Continuous(
+        "head_swivel": cspace.cspace.classes.Joint(
             name="head_swivel",
+            type="continuous",
             child="head",
             parent="base_link",
             origin=cspace.cspace.classes.Attribute.Origin(
@@ -190,8 +204,9 @@ def test_spec(device, urdf_file):
                 lower=0.0, upper=0.0, effort=0.0, velocity=0.0
             ),
         ),
-        "tobox": cspace.cspace.classes.Fixed(
+        "tobox": cspace.cspace.classes.Joint(
             name="tobox",
+            type="fixed",
             child="box",
             parent="head",
             origin=cspace.cspace.classes.Attribute.Origin(
