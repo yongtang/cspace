@@ -194,11 +194,11 @@ def test_spec(device, urdf_file):
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
     assert torch.allclose(transform.qua, qua, atol=1e-4)
 
-    # revolute axis=(0, 0, 1) limit=(0.0, 0.548)
+    # revolute axis=(0, 0, 1)
     joint = spec.joint("left_gripper_joint")
 
     xyz = torch.tensor(joint.origin.xyz, device=device, dtype=torch.float64)
-    rpy = torch.tensor((0, 0, 0.548), device=device, dtype=torch.float64)
+    rpy = torch.tensor((0, 0, 1.0), device=device, dtype=torch.float64)
     qua = torch.tensor(
         scipy.spatial.transform.Rotation.from_euler("xyz", rpy.cpu()).as_quat(),
         device=device,
@@ -215,11 +215,11 @@ def test_spec(device, urdf_file):
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
     assert torch.allclose(transform.qua, qua, atol=1e-4)
 
-    # prismatic axis=(1, 0, 0) limit=(-0.38, 0)
+    # prismatic axis=(1, 0, 0)
     joint = spec.joint("gripper_extension")
 
     xyz = torch.tensor(joint.origin.xyz, device=device) + torch.tensor(
-        (-0.38, 0, 0), device=device, dtype=torch.float64
+        (-1.0, 0, 0), device=device, dtype=torch.float64
     )
     rpy = torch.tensor(joint.origin.rpy, device=device, dtype=torch.float64)
     qua = torch.tensor(

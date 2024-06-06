@@ -75,14 +75,13 @@ class JointState(cspace.cspace.classes.JointState):
         return Transform(xyz=xyz, rot=rot)
 
     @classmethod
-    def linear(cls, position, axis, lower, upper):
+    def linear(cls, position, axis):
         assert len(axis) == 3
         axis = [(index, sign) for index, sign in enumerate(axis) if sign]
         assert len(axis) == 1
         index, sign = next(iter(axis))
         assert (sign == 1) or (sign == -1)
 
-        position = torch.clip(position, min=lower, max=upper)
         position = position if sign > 0 else -position
 
         zero = torch.zeros_like(position)
@@ -103,18 +102,13 @@ class JointState(cspace.cspace.classes.JointState):
         return Transform(xyz=xyz, rot=rot)
 
     @classmethod
-    def angular(cls, position, axis, lower, upper):
+    def angular(cls, position, axis):
         assert len(axis) == 3
         axis = [(index, sign) for index, sign in enumerate(axis) if sign]
         assert len(axis) == 1
         index, sign = next(iter(axis))
         assert (sign == 1) or (sign == -1)
 
-        position = (
-            torch.clip(position, min=lower, max=upper)
-            if (upper is not None or lower is not None)
-            else position
-        )
         position = position if sign > 0 else -position
 
         zero = torch.zeros_like(position)

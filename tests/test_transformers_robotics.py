@@ -48,8 +48,6 @@ def test_kinematics(device, urdf_file, joint_state, link_pose):
     assert torch.allclose(pose("left_gripper").orientation, true_orientation, atol=1e-4)
 
     def f_joint(joint, value):
-        if joint.limit.lower < joint.limit.upper:
-            value = joint.limit.lower + (joint.limit.upper - joint.limit.lower) * value
         return (joint.name, float(value))
 
     joints = tuple(joint for joint in kinematics.spec.joint if joint.type != "fixed")

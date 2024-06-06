@@ -61,8 +61,6 @@ class JointState(abc.ABC):
             ) * self.angular(
                 self.position,
                 joint.axis,
-                joint.limit.lower,
-                joint.limit.upper,
             )
         elif joint.type == "continuous":
             return self.origin(
@@ -72,8 +70,6 @@ class JointState(abc.ABC):
             ) * self.angular(
                 self.position,
                 joint.axis,
-                None,
-                None,
             )
         elif joint.type == "prismatic":
             return self.origin(
@@ -83,8 +79,6 @@ class JointState(abc.ABC):
             ) * self.linear(
                 self.position,
                 joint.axis,
-                joint.limit.lower,
-                joint.limit.upper,
             )
         raise NotImplementedError
 
@@ -95,12 +89,12 @@ class JointState(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def linear(cls, position, axis, lower, upper):
+    def linear(cls, position, axis):
         raise NotImplementedError
 
     @classmethod
     @abc.abstractmethod
-    def angular(cls, position, axis, lower, upper):
+    def angular(cls, position, axis):
         raise NotImplementedError
 
 
@@ -163,16 +157,6 @@ class Transform(abc.ABC):
 
 class Attribute:
     @dataclasses.dataclass(kw_only=True, frozen=True, repr=False)
-    class Limit:
-        lower: float
-        upper: float
-        effort: float
-        velocity: float
-
-        def __repr__(self):
-            return f"(lower={self.lower}, upper={self.upper}, effort={self.effort}, velocity={self.velocity})"
-
-    @dataclasses.dataclass(kw_only=True, frozen=True, repr=False)
     class Origin:
         xyz: tuple[float, float, float]
         rpy: tuple[float, float, float]
@@ -197,7 +181,6 @@ class Joint(abc.ABC):
     parent: str
     origin: Attribute.Origin
     axis: Attribute.Axis
-    limit: Attribute.Limit
 
     def __post_init__(self):
         pass
@@ -297,29 +280,6 @@ class Spec:
             )
             return Attribute.Axis(xyz.split(" "))
 
-        def f_limit(e):
-            entries = e.getElementsByTagName("limit")
-            assert entries.length == 0 or entries.length == 1
-            lower = (
-                "0" if entries.length == 0 else entries.item(0).getAttribute("lower")
-            )
-            upper = (
-                "0" if entries.length == 0 else entries.item(0).getAttribute("upper")
-            )
-            effort = (
-                "0" if entries.length == 0 else entries.item(0).getAttribute("effort")
-            )
-            velocity = (
-                "0" if entries.length == 0 else entries.item(0).getAttribute("velocity")
-            )
-            lower = float(lower if lower else "0")
-            upper = float(upper if upper else "0")
-            effort = float(effort)
-            velocity = float(velocity)
-            return Attribute.Limit(
-                lower=lower, upper=upper, effort=effort, velocity=velocity
-            )
-
         def f_mimic(e):
             entries = e.getElementsByTagName("mimic")
             assert entries.length == 0, "TODO: mimic"
@@ -331,7 +291,6 @@ class Spec:
             parent = f_attribute(f_element(e, "parent"), "link")
             origin = f_origin(e)
             axis = f_axis(e)
-            limit = f_limit(e)
             mimic = f_mimic(e)
             return Joint(
                 name=name,
@@ -340,7 +299,6 @@ class Spec:
                 parent=parent,
                 origin=origin,
                 axis=axis,
-                limit=limit,
             )
 
         def f_chain(entry, joint):
