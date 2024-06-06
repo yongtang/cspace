@@ -127,6 +127,14 @@ class Attribute:
         def __repr__(self):
             return f"(xyz={self.xyz}, rpy={self.rpy})"
 
+    class Axis(tuple):
+        def __new__(cls, items):
+            items = tuple(int(item) for item in items)
+            assert len(items) == 3
+            assert items.count(0) == 2
+            assert items.count(1) + items.count(-1) == 1
+            return super().__new__(cls, items)
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Joint(abc.ABC):
@@ -135,7 +143,7 @@ class Joint(abc.ABC):
     child: str
     parent: str
     origin: Attribute.Origin
-    axis: tuple[int, int, int]
+    axis: Attribute.Axis
     limit: Attribute.Limit
 
     def __post_init__(self):
@@ -234,12 +242,7 @@ class Spec:
             xyz = (
                 "1 0 0" if entries.length == 0 else entries.item(0).getAttribute("xyz")
             )
-            xyz = xyz.split(" ")
-            assert len(xyz) == 3
-            assert xyz.count("0") == 2
-            assert xyz.count("1") + xyz.count("-1") == 1
-            xyz = tuple(int(e) for e in xyz)
-            return xyz
+            return Attribute.Axis(xyz.split(" "))
 
         def f_limit(e):
             entries = e.getElementsByTagName("limit")
