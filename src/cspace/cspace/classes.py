@@ -46,8 +46,61 @@ class JointState(abc.ABC):
     def position(self):
         raise NotImplementedError
 
-    @abc.abstractmethod
     def transform(self, joint):
+        if joint.type == "fixed":
+            return self.origin(
+                self.position,
+                joint.origin.xyz,
+                joint.origin.rpy,
+            )
+        elif joint.type == "revolute":
+            return self.origin(
+                self.position,
+                joint.origin.xyz,
+                joint.origin.rpy,
+            ) * self.angular(
+                self.position,
+                joint.axis,
+                joint.limit.lower,
+                joint.limit.upper,
+            )
+        elif joint.type == "continuous":
+            return self.origin(
+                self.position,
+                joint.origin.xyz,
+                joint.origin.rpy,
+            ) * self.angular(
+                self.position,
+                joint.axis,
+                None,
+                None,
+            )
+        elif joint.type == "prismatic":
+            return self.origin(
+                self.position,
+                joint.origin.xyz,
+                joint.origin.rpy,
+            ) * self.linear(
+                self.position,
+                joint.axis,
+                joint.limit.lower,
+                joint.limit.upper,
+            )
+        raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def origin(cls, position, xyz, rpy):
+        raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def linear(cls, position, axis, lower, upper):
+        raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def angular(cls, position, axis, lower, upper):
         raise NotImplementedError
 
 
