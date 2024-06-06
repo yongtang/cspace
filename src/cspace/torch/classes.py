@@ -5,28 +5,12 @@ import torch
 
 
 class LinkPose(cspace.cspace.classes.LinkPose):
-    def __init__(self, base, position, orientation):
-        self._base_ = base
-        self._position_ = position
-        self._orientation_ = orientation
-
-    @property
-    def base(self):
-        return self._base_
-
-    @property
-    def position(self):
-        return self._position_
-
-    @property
-    def orientation(self):
-        return self._orientation_
+    pass
 
 
 class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
     def __init__(self, base, name, position, orientation):
         self._base_ = base
-        self._name_ = name
         self._name_ = tuple(name)
         self._position_ = torch.as_tensor(position, dtype=torch.float64)
         assert len(self._name_) == self._position_.shape[-1]
@@ -44,20 +28,14 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
     def __call__(self, name):
         index = self.name.index(name)
         return LinkPose(
-            self.base,
-            torch.select(self._position_, dim=-1, index=index),
-            torch.select(self._orientation_, dim=-1, index=index),
+            base=self.base,
+            name=name,
+            position=torch.select(self._position_, dim=-1, index=index),
+            orientation=torch.select(self._orientation_, dim=-1, index=index),
         )
 
 
 class JointState(cspace.cspace.classes.JointState):
-    def __init__(self, position):
-        self._position_ = torch.as_tensor(position, dtype=torch.float64)
-
-    @property
-    def position(self):
-        return self._position_
-
     @classmethod
     def origin(cls, position, xyz, rpy):
         xyz = torch.as_tensor(
@@ -75,20 +53,14 @@ class JointState(cspace.cspace.classes.JointState):
         return Transform(xyz=xyz, rot=rot)
 
     @classmethod
-    def linear(cls, position, axis):
-        assert len(axis) == 3
-        axis = [(index, sign) for index, sign in enumerate(axis) if sign]
-        assert len(axis) == 1
-        index, sign = next(iter(axis))
-        assert (sign == 1) or (sign == -1)
-
+    def linear(cls, position, sign, axis):
         position = position if sign > 0 else -position
 
         zero = torch.zeros_like(position)
 
-        if index == 0:
+        if axis == 0:
             xyz = torch.stack((position, zero, zero), dim=-1)
-        elif index == 1:
+        elif axis == 1:
             xyz = torch.stack((zero, position, zero), dim=-1)
         else:
             xyz = torch.stack((zero, zero, position), dim=-1)
@@ -102,13 +74,7 @@ class JointState(cspace.cspace.classes.JointState):
         return Transform(xyz=xyz, rot=rot)
 
     @classmethod
-    def angular(cls, position, axis):
-        assert len(axis) == 3
-        axis = [(index, sign) for index, sign in enumerate(axis) if sign]
-        assert len(axis) == 1
-        index, sign = next(iter(axis))
-        assert (sign == 1) or (sign == -1)
-
+    def angular(cls, position, sign, axis):
         position = position if sign > 0 else -position
 
         zero = torch.zeros_like(position)
@@ -116,7 +82,7 @@ class JointState(cspace.cspace.classes.JointState):
         sin = torch.sin(position)
         cos = torch.cos(position)
 
-        if index == 0:
+        if axis == 0:
             rot = torch.stack(
                 (
                     one,
@@ -131,7 +97,7 @@ class JointState(cspace.cspace.classes.JointState):
                 ),
                 dim=-1,
             )
-        elif index == 1:
+        elif axis == 1:
             rot = torch.stack(
                 (
                     cos,
@@ -185,14 +151,17 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
     def __call__(self, name):
         if name not in self.name:
             return JointState(
-                torch.empty(
+                name=name,
+                position=torch.empty(
                     self._position_.shape[:-1],
                     device=self._position_.device,
                     dtype=self._position_.dtype,
-                )
+                ),
             )
         index = self.name.index(name)
-        return JointState(torch.select(self._position_, dim=-1, index=index))
+        return JointState(
+            name=name, position=torch.select(self._position_, dim=-1, index=index)
+        )
 
     def identity(self):
         xyz = torch.as_tensor(

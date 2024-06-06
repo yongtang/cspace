@@ -46,7 +46,7 @@ class DataEncoding(abc.ABC):
 
     def __init__(self, spec, link):
         self.link = link
-        self.joint = tuple(joint.name for joint in spec.joint if joint.type != "fixed")
+        self.joint = tuple(joint.name for joint in spec.joint if joint.motion.call)
 
         self.link_index = 6
         self.link_scale = 100
@@ -211,7 +211,7 @@ class Kinematics:
 
         entries = tuple(entry for entry in entries if entry.e == "joint")
 
-        name = tuple(joint.name for joint in self.spec.joint if joint.type != "fixed")
+        name = tuple(joint.name for joint in self.spec.joint if joint.motion.call)
         position = [0.0 for k in name]
         for entry in entries:
             position[name.index(entry.name)] += entry.entry

@@ -7,21 +7,12 @@ import dataclasses
 import xml.dom.minidom
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class LinkPose(abc.ABC):
-    @property
-    @abc.abstractmethod
-    def base(self):
-        raise NotImplementedError
-
-    @property
-    @abc.abstractmethod
-    def position(self):
-        raise NotImplementedError
-
-    @property
-    @abc.abstractmethod
-    def orientation(self):
-        raise NotImplementedError
+    base: str
+    name: str
+    position: typing.Any
+    orientation: typing.Any
 
 
 class LinkPoseCollection(abc.ABC):
@@ -40,45 +31,32 @@ class LinkPoseCollection(abc.ABC):
         raise NotImplementedError
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class JointState(abc.ABC):
-    @property
-    @abc.abstractmethod
-    def position(self):
-        raise NotImplementedError
+    name: str
+    position: typing.Any
 
-    def transform(self, joint):
-        if joint.type == "fixed":
-            return self.origin(
+    def transform(self, spec):
+        joint = spec.joint(self.name)
+
+        origin = self.origin(
+            self.position,
+            joint.origin.xyz,
+            joint.origin.rpy,
+        )
+        if joint.motion.call == "":
+            return origin
+        elif joint.motion.call == "linear":
+            return origin * self.linear(
                 self.position,
-                joint.origin.xyz,
-                joint.origin.rpy,
+                joint.motion.sign,
+                joint.motion.axis,
             )
-        elif joint.type == "revolute":
-            return self.origin(
+        elif joint.motion.call == "angular":
+            return origin * self.angular(
                 self.position,
-                joint.origin.xyz,
-                joint.origin.rpy,
-            ) * self.angular(
-                self.position,
-                joint.axis,
-            )
-        elif joint.type == "continuous":
-            return self.origin(
-                self.position,
-                joint.origin.xyz,
-                joint.origin.rpy,
-            ) * self.angular(
-                self.position,
-                joint.axis,
-            )
-        elif joint.type == "prismatic":
-            return self.origin(
-                self.position,
-                joint.origin.xyz,
-                joint.origin.rpy,
-            ) * self.linear(
-                self.position,
-                joint.axis,
+                joint.motion.sign,
+                joint.motion.axis,
             )
         raise NotImplementedError
 
@@ -89,12 +67,12 @@ class JointState(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def linear(cls, position, axis):
+    def linear(cls, position, sign, axis):
         raise NotImplementedError
 
     @classmethod
     @abc.abstractmethod
-    def angular(cls, position, axis):
+    def angular(cls, position, sign, axis):
         raise NotImplementedError
 
 
@@ -119,7 +97,7 @@ class JointStateCollection(abc.ABC):
     def transform(self, spec, link, base):
         def f_transform(spec, name, forward):
             state = self.__call__(name)
-            e_transform = state.transform(spec.joint(name))
+            e_transform = state.transform(spec)
             e_transform = e_transform if forward else e_transform.inverse()
             return e_transform
 
@@ -156,31 +134,54 @@ class Transform(abc.ABC):
 
 
 class Attribute:
-    @dataclasses.dataclass(kw_only=True, frozen=True, repr=False)
-    class Origin:
-        xyz: tuple[float, float, float]
-        rpy: tuple[float, float, float]
-
-        def __repr__(self):
-            return f"(xyz={self.xyz}, rpy={self.rpy})"
-
-    class Axis(tuple):
+    class Origin(tuple):
         def __new__(cls, items):
-            items = tuple(int(item) for item in items)
-            assert len(items) == 3
-            assert items.count(0) == 2
-            assert items.count(1) + items.count(-1) == 1
+            items = tuple(float(item) for item in items)
+            assert len(items) == 6
             return super().__new__(cls, items)
+
+        @functools.cached_property
+        def xyz(self):
+            return self[:3]
+
+        @functools.cached_property
+        def rpy(self):
+            return self[3:]
+
+    @dataclasses.dataclass(init=False, frozen=True)
+    class Motion:
+        call: str
+        sign: int
+        axis: int
+
+        def __init__(self, joint, axis):
+            if joint == "fixed":
+                call = ""
+            elif joint == "prismatic":
+                call = "linear"
+            elif joint in ("revolute", "continuous"):
+                call = "angular"
+            else:
+                raise NotImplementedError
+            axis = tuple(int(item) for item in axis)
+            assert len(axis) == 3
+            sign = tuple(item for item in axis if item)
+            assert len(sign) == 1
+            sign = next(iter(sign))
+            assert (sign == 1) or (sign == -1)
+            axis = axis.index(sign)
+            object.__setattr__(self, "call", call)
+            object.__setattr__(self, "sign", sign)
+            object.__setattr__(self, "axis", axis)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Joint(abc.ABC):
     name: str
-    type: str
     child: str
     parent: str
     origin: Attribute.Origin
-    axis: Attribute.Axis
+    motion: Attribute.Motion
 
     def __post_init__(self):
         pass
@@ -270,15 +271,16 @@ class Spec:
             xyz = tuple(float(e) for e in xyz.split(" "))
             rpy = tuple(float(e) for e in rpy.split(" "))
             assert len(xyz) == 3 and len(rpy) == 3
-            return Attribute.Origin(xyz=xyz, rpy=rpy)
+            origin = xyz + rpy
+            return Attribute.Origin(origin)
 
-        def f_axis(e):
+        def f_motion(e):
             entries = e.getElementsByTagName("axis")
             assert entries.length == 0 or entries.length == 1
             xyz = (
                 "1 0 0" if entries.length == 0 else entries.item(0).getAttribute("xyz")
             )
-            return Attribute.Axis(xyz.split(" "))
+            return Attribute.Motion(f_attribute(e, "type"), xyz.split(" "))
 
         def f_mimic(e):
             entries = e.getElementsByTagName("mimic")
@@ -290,15 +292,14 @@ class Spec:
             child = f_attribute(f_element(e, "child"), "link")
             parent = f_attribute(f_element(e, "parent"), "link")
             origin = f_origin(e)
-            axis = f_axis(e)
+            motion = f_motion(e)
             mimic = f_mimic(e)
             return Joint(
                 name=name,
-                type=f_attribute(e, "type"),
                 child=child,
                 parent=parent,
                 origin=origin,
-                axis=axis,
+                motion=motion,
             )
 
         def f_chain(entry, joint):

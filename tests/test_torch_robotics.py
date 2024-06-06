@@ -164,10 +164,10 @@ def test_spec(device, urdf_file):
     )
 
     state = cspace.torch.classes.JointState(
-        torch.tensor(1.0, device=device, dtype=torch.float64)
+        name=joint.name, position=torch.tensor(1.0, device=device, dtype=torch.float64)
     )
 
-    transform = state.transform(joint)
+    transform = state.transform(spec)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -185,10 +185,10 @@ def test_spec(device, urdf_file):
     )
 
     state = cspace.torch.classes.JointState(
-        torch.tensor(1.0, device=device, dtype=torch.float64)
+        name=joint.name, position=torch.tensor(1.0, device=device, dtype=torch.float64)
     )
 
-    transform = state.transform(joint)
+    transform = state.transform(spec)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -206,10 +206,10 @@ def test_spec(device, urdf_file):
     )
 
     state = cspace.torch.classes.JointState(
-        torch.tensor(1.0, device=device, dtype=torch.float64)
+        name=joint.name, position=torch.tensor(1.0, device=device, dtype=torch.float64)
     )
 
-    transform = state.transform(joint)
+    transform = state.transform(spec)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -229,10 +229,10 @@ def test_spec(device, urdf_file):
     )
 
     state = cspace.torch.classes.JointState(
-        torch.tensor(-1.0, device=device, dtype=torch.float64)
+        name=joint.name, position=torch.tensor(-1.0, device=device, dtype=torch.float64)
     )
 
-    transform = state.transform(joint)
+    transform = state.transform(spec)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -243,7 +243,7 @@ def test_transform(device, urdf_file, joint_state, link_pose):
     spec = cspace.cspace.classes.Spec(description=pathlib.Path(urdf_file).read_text())
 
     joint_state = dict(zip(joint_state.name, joint_state.position))
-    name = tuple(joint.name for joint in spec.joint if joint.type != "fixed")
+    name = tuple(joint.name for joint in spec.joint if joint.motion.call)
     position = torch.tensor(
         tuple(joint_state[entry] for entry in name), dtype=torch.float64, device=device
     )

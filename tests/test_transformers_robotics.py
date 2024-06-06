@@ -15,7 +15,7 @@ def test_kinematics(device, urdf_file, joint_state, link_pose):
     spec = cspace.cspace.classes.Spec(description=pathlib.Path(urdf_file).read_text())
 
     joint_state = dict(zip(joint_state.name, joint_state.position))
-    name = tuple(joint.name for joint in spec.joint if joint.type != "fixed")
+    name = tuple(joint.name for joint in spec.joint if joint.motion.call)
     position = torch.tensor(
         tuple(joint_state[entry] for entry in name), dtype=torch.float64, device=device
     )
@@ -50,7 +50,7 @@ def test_kinematics(device, urdf_file, joint_state, link_pose):
     def f_joint(joint, value):
         return (joint.name, float(value))
 
-    joints = tuple(joint for joint in kinematics.spec.joint if joint.type != "fixed")
+    joints = tuple(joint for joint in kinematics.spec.joint if joint.motion.call)
     values = numpy.random.default_rng(12345).random(len(joints))
     entries = tuple(f_joint(joint, value) for joint, value in zip(joints, values))
 
