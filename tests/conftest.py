@@ -1,5 +1,6 @@
 import pytest
 
+import argparse
 import requests
 import operator
 import functools
@@ -12,8 +13,22 @@ import torch
 
 def pytest_addoption(parser):
     parser.addoption(
+        "--train",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="run tests for training",
+    )
+    parser.addoption(
         "--device", action="store", default="cpu,cuda", help="run tests with CUDA"
     )
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--train"):
+        return
+    for item in items:
+        if "train" in item.keywords:
+            item.add_marker(pytest.mark.skip(reason="--no-train"))
 
 
 def pytest_generate_tests(metafunc):
@@ -248,3 +263,8 @@ def link_pose(urdf_file):
         )
         for k, v in poses.items()
     }
+
+
+@pytest.fixture(scope="session")
+def random_seed():
+    return 12345

@@ -1,7 +1,10 @@
+import pytest
+
 import cspace.transformers
 
 import itertools
 import pathlib
+import logging
 import numpy
 import torch
 
@@ -109,4 +112,42 @@ def test_kinematics(device, urdf_file, joint_state, link_pose):
         torch.stack(tuple(state(name).position for name in state.name)),
         torch.stack(tuple(decoded(name).position for name in decoded.name)),
         atol=1e-3,
+    )
+
+
+@pytest.mark.train
+@pytest.mark.parametrize(
+    "model,seed,total,epoch,batch",
+    [
+        ("gpt2", 12345, 1024 * 1024, 20, 2048),
+    ],
+)
+def test_train(
+    device, urdf_file, joint_state, link_pose, model, seed, total, batch, epoch
+):
+    kinematics = cspace.transformers.Kinematics(
+        pathlib.Path(urdf_file).read_text(), "left_gripper", model=model
+    )
+    kinematics.train(seed=seed, total=total, batch=batch, epoch=epoch, device=device)
+
+    def f_joint(joint, value):
+        return (joint.name, float(value))
+
+    joints = tuple(joint for joint in kinematics.spec.joint if joint.motion.call)
+    values = numpy.random.default_rng(seed).random(len(joints))
+    entries = tuple(f_joint(joint, value) for joint, value in zip(joints, values))
+
+    name = tuple(name for name, entry in entries)
+    position = torch.tensor(
+        tuple(entry for name, entry in entries), dtype=torch.float64
+    )
+    state = cspace.torch.classes.JointStateCollection(name, position)
+
+    pose = kinematics.forward(state)
+
+    inverse = kinematics.inverse(pose)
+    logging.getLogger(__name__).info(
+        ("\n[Inverse Kinematics]" + "\nPred: {}" + "\nTrue: {}" + "\n").format(
+            inverse._position_, state._position_
+        )
     )
