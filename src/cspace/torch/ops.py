@@ -222,7 +222,9 @@ def se3_log(xyz, rot):
         1.0 - (theta * torch.cos(theta / 2.0)) / (2.0 * torch.sin(theta / 2.0))
     ) / (theta * theta)
     value = torch.unsqueeze(value, -1)
-    inv = torch.eye(3) - omega / 2.0 + value * bmm
+    inv = (
+        torch.eye(3, device=value.device, dtype=value.dtype) - omega / 2.0 + value * bmm
+    )
     shape = xyz.shape
     bmm = torch.reshape(
         torch.bmm(torch.reshape(inv, (-1, 3, 3)), torch.reshape(xyz, (-1, 3, 1))), shape
