@@ -183,7 +183,7 @@ def so3_log(rot):
 def se3_log(xyz, rot):
     xyz = torch.as_tensor(xyz)
     rot = torch.as_tensor(rot, dtype=xyz.dtype)
-    batch = set((xyz.shape[:-1], rot.shape[:-2]))
+    batch = {xyz.shape[:-1], rot.shape[:-2]}
     assert len(batch) == 1
     batch = list(next(iter(batch)))
 
@@ -236,9 +236,7 @@ def se3_mul(xyz_a, rot_a, xyz_b, rot_b):
     rot_a = torch.as_tensor(rot_a, dtype=xyz_a.dtype)
     xyz_b = torch.as_tensor(xyz_b)
     rot_b = torch.as_tensor(rot_b, dtype=xyz_b.dtype)
-    batch = set(
-        (xyz_a.shape[:-1], rot_a.shape[:-2], xyz_b.shape[:-1], rot_b.shape[:-2])
-    )
+    batch = {xyz_a.shape[:-1], rot_a.shape[:-2], xyz_b.shape[:-1], rot_b.shape[:-2]}
     assert len(batch) == 1
     batch = list(next(iter(batch)))
 
@@ -259,7 +257,7 @@ def se3_mul(xyz_a, rot_a, xyz_b, rot_b):
 def se3_inv(xyz, rot):
     xyz = torch.as_tensor(xyz)
     rot = torch.as_tensor(rot, dtype=xyz.dtype)
-    batch = set((xyz.shape[:-1], rot.shape[:-2]))
+    batch = {xyz.shape[:-1], rot.shape[:-2]}
     assert len(batch) == 1
     batch = list(next(iter(batch)))
 

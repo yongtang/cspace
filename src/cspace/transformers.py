@@ -1,101 +1,105 @@
 import cspace.cspace.classes
 import cspace.torch.classes
 import dataclasses
+import functools
 import itertools
 import typing
-import math
+import torch
 import abc
 
 
-class DataEncoding(abc.ABC):
-    @dataclasses.dataclass(frozen=True, kw_only=True)
-    class ScaleRecord:
-        e: str | None
-        name: str | None
-        index: int | None
-        entry: float | None
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class DataIndex:
+    e: str | None
+    name: str | None
+    field: int | None
 
-    @dataclasses.dataclass(frozen=True, kw_only=True)
-    class ScaleEncoding:
-        scale: int
 
-        def __post_init__(self):
-            assert self.scale >= 0
-
-        def encode(self, data):
-            if self.scale == 0:
-                assert data is None
-                return 0
-
-            assert -1.0 <= data and data <= 1.0
-            entry = int(data * self.scale)
-            return min(max(entry, -self.scale), self.scale) + self.scale
-
-        def decode(self, data):
-            if self.scale == 0:
-                assert data == 0
-                return None
-
-            assert 0 <= data and data <= self.scale * 2
-            entry = float((data - self.scale) / self.scale)
-            return min(max(entry, -1.0), 1.0)
-
-        @property
-        def dimension(self):
-            return self.scale * 2 + 1
-
-    def __init__(self, spec, link):
-        self.link = link
-        self.joint = tuple(joint.name for joint in spec.joint if joint.motion.call)
-
-        self.link_index = 6
-        self.link_scale = 100
-        self.joint_scale = 100
-
-        self.bucket = []
-        for link in self.link:
-            for index in range(self.link_index):
-                lookup = DataEncoding.ScaleRecord(
-                    e="link", name=link, index=index, entry=None
-                )
-                encoding = DataEncoding.ScaleEncoding(scale=self.link_scale)
-                self.bucket.append((lookup, encoding))
-        for joint in self.joint:
-            lookup = DataEncoding.ScaleRecord(
-                e="joint", name=joint, index=0, entry=None
-            )
-            encoding = DataEncoding.ScaleEncoding(scale=self.joint_scale)
-            self.bucket.append((lookup, encoding))
-
-        self.bucket.append(
-            (
-                DataEncoding.ScaleRecord(e=None, name=None, index=None, entry=None),
-                DataEncoding.ScaleEncoding(scale=0),
-            )
-        )
+class DataBlock(abc.ABC):
+    def __init__(self, dimension):
+        self.dimension = int(dimension)
 
     def encode(self, data):
-        index = 0
-        for lookup, encoding in self.bucket:
-            if lookup == DataEncoding.ScaleRecord(
-                e=data.e, name=data.name, index=data.index, entry=None
-            ):
-                return index + encoding.encode(data.entry)
-            index += encoding.dimension
-
-        raise ValueError("{}".format(data))
+        value = torch.as_tensor(data, dtype=torch.float64)
+        value = torch.special.expit(value)
+        value = torch.clip(
+            (value * (self.dimension - 1)).to(torch.int64),
+            min=0,
+            max=(self.dimension - 1),
+        )
+        return value
 
     def decode(self, data):
-        index = 0
-        for lookup, encoding in self.bucket:
-            if index <= data and data < index + encoding.dimension:
-                entry = encoding.decode(data - index)
-                return DataEncoding.ScaleRecord(
-                    e=lookup.e, name=lookup.name, index=lookup.index, entry=entry
-                )
-            index += encoding.dimension
+        value = torch.as_tensor(data, dtype=torch.int64)
+        value = torch.clip(
+            (data % self.dimension).to(torch.float64) / (self.dimension - 1),
+            min=0.0,
+            max=1.0,
+        )
+        value = torch.special.logit(value)
+        return value
 
-        raise ValueError("{}".format(data))
+
+@dataclasses.dataclass(frozen=True, init=False)
+class NoneIndex(DataIndex):
+    def __init__(self):
+        object.__setattr__(self, "e", None)
+        object.__setattr__(self, "name", None)
+        object.__setattr__(self, "field", None)
+
+
+@dataclasses.dataclass(frozen=True, init=False)
+class PoseIndex(DataIndex):
+    def __init__(self, name, field):
+        object.__setattr__(self, "e", "pose")
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "field", field)
+
+
+@dataclasses.dataclass(frozen=True, init=False)
+class JointIndex(DataIndex):
+    def __init__(self, name):
+        object.__setattr__(self, "e", "joint")
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "field", None)
+
+
+class BlockEncoding(abc.ABC):
+    def __init__(self, spec, link):
+        self.blocks = []
+        for name in link:
+            for field in range(6):
+                self.blocks.append(
+                    (PoseIndex(name=name, field=field), DataBlock(dimension=10000))
+                )
+        for joint in spec.joint:
+            self.blocks.append(
+                (JointIndex(name=joint.name), DataBlock(dimension=10000))
+            )
+        self.blocks.append((NoneIndex(), DataBlock(dimension=1)))
+
+    def encode(self, data):
+        index, value = data
+        index = self.indices.index(index)
+        count = sum(map(lambda i: self.entries[i].dimension, range(index)))
+        block = self.entries[index]
+        return count + block.encode(value)
+
+    def decode(self, data):
+        count = 0
+        for index, block in self.blocks:
+            if count <= data and data < count + block.dimension:
+                return index, block.decode(data - count)
+            count += block.dimension
+        raise ValueError(f"{data}")
+
+    @functools.cached_property
+    def indices(self):
+        return tuple(index for index, block in self.blocks)
+
+    @functools.cached_property
+    def entries(self):
+        return tuple(block for index, block in self.blocks)
 
 
 class Kinematics:
@@ -121,101 +125,66 @@ class Kinematics:
         raise NotImplementedError
 
     def tokenize(self, data):
-        if isinstance(data, cspace.cspace.classes.LinkPoseCollection):
-            assert False
-
-        state = data
-
-        entries = tuple(
-            DataEncoding.ScaleRecord(
-                e="joint", name=name, index=0, entry=(state(name).position)
-            )
-            for name in state.name
-        )
-        count = math.ceil(max(abs(entry.entry) for entry in entries))
-        entries = tuple(
-            [
-                DataEncoding.ScaleRecord(
-                    e=entry.e,
-                    name=entry.name,
-                    index=entry.index,
-                    entry=(entry.entry / count if count > 0 else 0.0),
-                )
-            ]
-            * count
-            for entry in entries
-        )
-        entries = tuple(
-            entry
-            for entry in itertools.chain.from_iterable(zip(*entries))
-            if abs(entry.entry) > 0.0
-        )
-
-        def f_link(spec, link, base, zero):
+        def f_pose(spec, link, base, zero, link_transforms):
             zero_transform = zero.transform(spec, link, base)
-            link_transform = state.transform(spec, link, base)
+            link_transform = link_transforms[link]
             transform = zero_transform.inverse() * link_transform
             return [
-                DataEncoding.ScaleRecord(e="link", name=link, index=index, entry=entry)
-                for index, entry in enumerate(
+                self.encoding.encode((PoseIndex(name=link, field=field), entry))
+                for field, entry in enumerate(
                     cspace.torch.ops.se3_log(transform.xyz, transform.rot)
                 )
             ]
 
-        zero = cspace.torch.classes.JointStateCollection(
-            state.name, tuple(0.0 for name in state.name)
-        )
-        links = tuple(
+        name = tuple(joint.name for joint in self.spec.joint if joint.motion.call)
+        zero = cspace.torch.classes.JointStateCollection(name, tuple(0.0 for e in name))
+
+        if isinstance(data, cspace.cspace.classes.JointStateCollection):
+            assert tuple(sorted(data.name)) == tuple(sorted(name))
+            link_transforms = {
+                link: data.transform(self.spec, link, self.base) for link in self.link
+            }
+            state = data
+        elif isinstance(data, cspace.cspace.classes.LinkPoseCollection):
+            assert False
+        else:
+            raise ValueError(f"{data}")
+
+        entries = tuple(
             itertools.chain.from_iterable(
-                tuple(f_link(self.spec, link, self.base, zero) for link in self.link)
+                tuple(
+                    f_pose(self.spec, link, self.base, zero, link_transforms)
+                    for link in self.link
+                )
             )
         )
-        count = math.ceil(max(abs(entry.entry) for entry in links))
-        links = tuple(
-            [
-                DataEncoding.ScaleRecord(
-                    e=entry.e,
-                    name=entry.name,
-                    index=entry.index,
-                    entry=(entry.entry / count if count > 0 else 0.0),
-                )
-            ]
-            * count
-            for entry in links
-        )
-        links = tuple(
-            entry
-            for entry in itertools.chain.from_iterable(zip(*links))
-            if abs(entry.entry) > 0.0
-        )
+        entries = entries + tuple([self.encoding.encode((NoneIndex(), 0.0))])
 
-        encoding = DataEncoding(self.spec, self.link)
-
-        none = tuple(
-            [DataEncoding.ScaleRecord(e=None, name=None, index=None, entry=None)]
-        )
-
-        return tuple(map(encoding.encode, links + none + entries + none))
+        if state is not None:
+            entries = entries + tuple(
+                self.encoding.encode((JointIndex(name=name), state(name).position))
+                for name in state.name
+            )
+            entries = entries + tuple([self.encoding.encode((NoneIndex(), 0.0))])
+        return entries
 
     def assembly(self, data):
-        encoding = DataEncoding(self.spec, self.link)
-        entries = tuple(map(encoding.decode, data))
-        index = entries.index(
-            DataEncoding.ScaleRecord(e=None, name=None, index=None, entry=None)
-        )
+        entries = tuple(map(self.encoding.decode, data))
+        index = list(index for index, entry in entries).index(NoneIndex())
+        poses = entries[:index]
         entries = entries[index + 1 :]
-        index = entries.index(
-            DataEncoding.ScaleRecord(e=None, name=None, index=None, entry=None)
-        )
-        entries = entries[:index]
-
-        entries = tuple(entry for entry in entries if entry.e == "joint")
+        index = list(index for index, entry in entries).index(NoneIndex())
+        states = entries[:index]
 
         name = tuple(joint.name for joint in self.spec.joint if joint.motion.call)
-        position = [0.0 for k in name]
-        for entry in entries:
-            position[name.index(entry.name)] += entry.entry
-
+        position = [0.0 for e in name]
+        for index, entry in states:
+            if index.e == "joint":
+                position[name.index(index.name)] += entry
         state = cspace.torch.classes.JointStateCollection(name, position)
 
         return state
+
+    @property
+    def encoding(self):
+        return BlockEncoding(self.spec, self.link)

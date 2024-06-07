@@ -4,7 +4,6 @@ import itertools
 import pathlib
 import numpy
 import torch
-import math
 
 
 def test_kinematics(device, urdf_file, joint_state, link_pose):
@@ -62,86 +61,46 @@ def test_kinematics(device, urdf_file, joint_state, link_pose):
 
     encoded = kinematics.tokenize(state)
 
-    entries = tuple(
-        cspace.transformers.DataEncoding.ScaleRecord(
-            e="joint", name=name, index=0, entry=(state(name).position)
-        )
-        for name in state.name
-    )
-    count = math.ceil(max(abs(entry.entry) for entry in entries))
-    entries = tuple(
-        [
-            cspace.transformers.DataEncoding.ScaleRecord(
-                e=entry.e,
-                name=entry.name,
-                index=entry.index,
-                entry=(entry.entry / count if count > 0 else 0.0),
-            )
-        ]
-        * count
-        for entry in entries
-    )
-    entries = tuple(
-        entry
-        for entry in itertools.chain.from_iterable(zip(*entries))
-        if abs(entry.entry) > 0.0
-    )
-
-    def f_link(spec, link, base, zero):
+    def f_pose(spec, link, base, zero, link_transforms):
         zero_transform = zero.transform(spec, link, base)
-        link_transform = state.transform(spec, link, base)
+        link_transform = link_transforms[link]
         transform = zero_transform.inverse() * link_transform
         return [
-            cspace.transformers.DataEncoding.ScaleRecord(
-                e="link", name=link, index=index, entry=entry
+            kinematics.encoding.encode(
+                (cspace.transformers.PoseIndex(name=link, field=field), entry)
             )
-            for index, entry in enumerate(
+            for field, entry in enumerate(
                 cspace.torch.ops.se3_log(transform.xyz, transform.rot)
             )
         ]
 
-    zero = cspace.torch.classes.JointStateCollection(
-        state.name, tuple(0.0 for name in state.name)
-    )
-    links = tuple(
+    link_transforms = {
+        link: state.transform(kinematics.spec, link, kinematics.base)
+        for link in kinematics.link
+    }
+    name = tuple(joint.name for joint in kinematics.spec.joint if joint.motion.call)
+    zero = cspace.torch.classes.JointStateCollection(name, tuple(0 for e in name))
+    entries = tuple(
         itertools.chain.from_iterable(
             tuple(
-                f_link(kinematics.spec, link, kinematics.base, zero)
+                f_pose(kinematics.spec, link, kinematics.base, zero, link_transforms)
                 for link in kinematics.link
             )
         )
     )
-    count = math.ceil(max(abs(entry.entry) for entry in links))
-    links = tuple(
-        [
-            cspace.transformers.DataEncoding.ScaleRecord(
-                e=entry.e,
-                name=entry.name,
-                index=entry.index,
-                entry=(entry.entry / count if count > 0 else 0.0),
-            )
-        ]
-        * count
-        for entry in links
+    entries = entries + tuple(
+        [kinematics.encoding.encode((cspace.transformers.NoneIndex(), 0))]
     )
-    links = tuple(
-        entry
-        for entry in itertools.chain.from_iterable(zip(*links))
-        if abs(entry.entry) > 0.0
+    entries = entries + tuple(
+        kinematics.encoding.encode(
+            (cspace.transformers.JointIndex(name=name), state(name).position)
+        )
+        for name in state.name
     )
-
-    encoding = cspace.transformers.DataEncoding(kinematics.spec, kinematics.link)
-    none = tuple(
-        [
-            cspace.transformers.DataEncoding.ScaleRecord(
-                e=None, name=None, index=None, entry=None
-            )
-        ]
+    entries = entries + tuple(
+        [kinematics.encoding.encode((cspace.transformers.NoneIndex(), 0))]
     )
-    true = links + none + entries + none
-    true = tuple(map(encoding.encode, true))
-    assert len(true) == len(encoded)
-    assert all([(a == b) for a, b in zip(true, encoded)])
+    assert entries == encoded
 
     decoded = kinematics.assembly(encoded)
 
@@ -149,5 +108,5 @@ def test_kinematics(device, urdf_file, joint_state, link_pose):
     assert torch.allclose(
         torch.stack(tuple(state(name).position for name in state.name)),
         torch.stack(tuple(decoded(name).position for name in decoded.name)),
-        atol=1e-2,
+        atol=1e-3,
     )

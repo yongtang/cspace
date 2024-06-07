@@ -119,9 +119,9 @@ def test_ops(transforms3d_data, device):
         ):
             assert torch.allclose(
                 torch.abs(v), torch.abs(r), atol=1e-4
-            ), "{}: {} vs. {}".format(index, v, r)
+            ), f"{index}: {v} vs. {r}"
         else:
-            assert torch.allclose(v, r, atol=1e-4), "{}: {} vs. {}".format(index, v, r)
+            assert torch.allclose(v, r, atol=1e-4), f"{index}: {v} vs. {r}"
 
     val = cspace.torch.ops.se3_log(se3_xyz, rot)
     assert val.shape == se3_log.shape
@@ -135,9 +135,9 @@ def test_ops(transforms3d_data, device):
         pi = torch.arccos(torch.zeros([], dtype=rot.dtype)) * 2
         angle = torch.abs(torch.arccos((torch.trace(r) - 1.0) / 2.0))
         if torch.abs(angle - pi) <= torch.finfo(r.dtype).eps:  # skip test on +-180
-            logging.getLogger(__name__).info("skip {}: {}".format(index, v))
+            logging.getLogger(__name__).info(f"skip {index}: {v}")
             v = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=v.dtype)
-        assert torch.allclose(v, l, atol=1e-4), "{}: {} vs. {}".format(index, v, l)
+        assert torch.allclose(v, l, atol=1e-4), f"{index}: {v} vs. {l}"
 
     val_xyz, val_rot = cspace.torch.ops.se3_mul(se3_xyz, rot, se3_xyz, rot)
     val = torch.concatenate((val_rot, val_xyz.unsqueeze(-1)), dim=-1)
