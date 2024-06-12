@@ -15,3 +15,19 @@ ignore-init-module-imports = true
 recursive = true
 [tool.black]
 target-version = ["py310"]
+[project.optional-dependencies]
+full =[
+  "torch",
+  "accelerate",
+  "transformers",
+]
+test = [
+  "torch",
+  "accelerate",
+  "transformers",
+  "scipy",
+  "pytest",
+  "transforms3d",
+  "black",
+  "autoflake",
+]
