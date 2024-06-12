@@ -146,6 +146,7 @@ class Kinematics:
     spec: cspace.cspace.classes.Spec
     base: str
     link: tuple[str]
+    joint: tuple[str]
     model: torch.nn.Module
 
     def __init__(self, description, *link, base=None, model=None):
@@ -155,12 +156,21 @@ class Kinematics:
         assert (not link) or all([(item in spec.link) for item in link])
         link = tuple(link) if link else spec.link
 
+        joint = list([e for e, _ in spec.route(e, base)] for e in link)
+        joint = list(set(itertools.chain.from_iterable(joint)))
+        joint = tuple(e for e in joint if spec.joint(e).motion.call)
+
         self.spec = spec
         self.base = base
         self.link = link
-        self.model = Model(
-            transformer=transformers.AutoModelForCausalLM.from_pretrained(model),
-            dimension=self.encoding.dimension,
+        self.joint = joint
+        self.model = (
+            Model(
+                transformer=transformers.AutoModelForCausalLM.from_pretrained(model),
+                dimension=self.encoding.dimension,
+            )
+            if model
+            else None
         )
 
     def forward(self, state):
