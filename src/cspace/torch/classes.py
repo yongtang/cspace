@@ -22,6 +22,14 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
         return self._base_
 
     @property
+    def position(self):
+        return self._position_
+
+    @property
+    def orientation(self):
+        return self._orientation_
+
+    @property
     def name(self):
         return self._name_
 
@@ -30,8 +38,8 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
         return LinkPose(
             base=self.base,
             name=name,
-            position=torch.select(self._position_, dim=-1, index=index),
-            orientation=torch.select(self._orientation_, dim=-1, index=index),
+            position=torch.select(self.position, dim=-1, index=index),
+            orientation=torch.select(self.orientation, dim=-1, index=index),
         )
 
 
@@ -148,28 +156,30 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
     def name(self):
         return self._name_
 
+    @property
+    def position(self):
+        return self._position_
+
     def __call__(self, name):
         if name not in self.name:
             return JointState(
                 name=name,
                 position=torch.empty(
-                    self._position_.shape[:-1],
-                    device=self._position_.device,
-                    dtype=self._position_.dtype,
+                    self.position.shape[:-1],
+                    device=self.position.device,
+                    dtype=self.position.dtype,
                 ),
             )
         index = self.name.index(name)
         return JointState(
-            name=name, position=torch.select(self._position_, dim=-1, index=index)
+            name=name, position=torch.select(self.position, dim=-1, index=index)
         )
 
     def identity(self):
         xyz = torch.as_tensor(
-            [0, 0, 0], device=self._position_.device, dtype=self._position_.dtype
+            [0, 0, 0], device=self.position.device, dtype=self.position.dtype
         )
-        rot = rot = torch.eye(
-            3, device=self._position_.device, dtype=self._position_.dtype
-        )
+        rot = rot = torch.eye(3, device=self.position.device, dtype=self.position.dtype)
 
         return Transform(xyz=xyz, rot=rot)
 

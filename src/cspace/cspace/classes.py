@@ -26,6 +26,16 @@ class LinkPoseCollection(abc.ABC):
     def name(self):
         raise NotImplementedError
 
+    @property
+    @abc.abstractmethod
+    def position(self):
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def orientation(self):
+        raise NotImplementedError
+
     @abc.abstractmethod
     def __call__(self, name):
         raise NotImplementedError
@@ -80,6 +90,11 @@ class JointStateCollection(abc.ABC):
     @property
     @abc.abstractmethod
     def name(self):
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def position(self):
         raise NotImplementedError
 
     @abc.abstractmethod
