@@ -143,8 +143,6 @@ def so3_log(rot):
     rot = torch.as_tensor(rot)
     eps = torch.finfo(rot.dtype).eps
 
-    pi = torch.arccos(torch.zeros([], dtype=rot.dtype)) * 2
-
     trace = torch.diagonal(rot, offset=0, dim1=-1, dim2=-2).sum(-1)
 
     angle = torch.arccos((trace - 1.0) / 2.0)
@@ -163,15 +161,15 @@ def so3_log(rot):
     c0 = torch.abs(angle) > eps
     axa = torch.where(c0, axa, torch.zeros_like(axa))
 
-    c1 = torch.abs(torch.abs(angle) - pi) > eps
+    c1 = torch.abs(torch.abs(angle) - torch.pi) > eps
     axa = torch.where(
         c1,
         axa,
         torch.stack(
             (
-                torch.sqrt((rot[..., 0, 0] + 1.0) / 2.0) * pi,
-                torch.sqrt((rot[..., 1, 1] + 1.0) / 2.0) * pi,
-                torch.sqrt((rot[..., 2, 2] + 1.0) / 2.0) * pi,
+                torch.sqrt((rot[..., 0, 0] + 1.0) / 2.0) * torch.pi,
+                torch.sqrt((rot[..., 1, 1] + 1.0) / 2.0) * torch.pi,
+                torch.sqrt((rot[..., 2, 2] + 1.0) / 2.0) * torch.pi,
             ),
             dim=-1,
         ),

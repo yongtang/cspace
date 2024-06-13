@@ -47,6 +47,20 @@ class JointState(abc.ABC):
     name: str
     position: typing.Any
 
+    def scale(self, spec):
+        joint = spec.joint(self.name)
+        position = self.position
+        position = self.angle(position) if joint.motion.call == "angular" else position
+        position = self.clip(
+            position,
+            joint.motion.zero - joint.motion.limit,
+            joint.motion.zero + joint.motion.limit,
+        )
+        position = (position - joint.motion.zero) / joint.motion.limit
+        return position
+
+        return position
+
     def transform(self, spec):
         joint = spec.joint(self.name)
 
@@ -84,6 +98,16 @@ class JointState(abc.ABC):
     @classmethod
     @abc.abstractmethod
     def angular(cls, position, sign, axis):
+        raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def angle(cls, position):
+        raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def clip(cls, position, lower, upper):
         raise NotImplementedError
 
 
@@ -169,16 +193,10 @@ class Attribute:
         call: str
         sign: int
         axis: int
+        zero: float
+        limit: float
 
-        def __init__(self, joint, axis):
-            if joint == "fixed":
-                call = ""
-            elif joint == "prismatic":
-                call = "linear"
-            elif joint in ("revolute", "continuous"):
-                call = "angular"
-            else:
-                raise NotImplementedError
+        def __init__(self, joint, axis, lower, upper):
             axis = tuple(int(item) for item in axis)
             assert len(axis) == 3
             sign = tuple(item for item in axis if item)
@@ -186,34 +204,36 @@ class Attribute:
             sign = next(iter(sign))
             assert (sign == 1) or (sign == -1)
             axis = axis.index(sign)
+
+            lower, upper = float(lower), float(upper)
+            assert lower <= upper
+            assert (joint != "revolute") or (-math.pi <= lower and lower <= math.pi)
+            assert (joint != "revolute") or (-math.pi <= upper and upper <= math.pi)
+
+            if joint == "fixed":
+                call = ""
+                zero = 0.0
+                limit = 0.0
+            elif joint == "prismatic":
+                call = "linear"
+                zero = (upper + lower) / 2.0
+                limit = (upper - lower) / 2.0
+            elif joint == "revolute":
+                call = "angular"
+                zero = (upper + lower) / 2.0
+                limit = (upper - lower) / 2.0
+            elif joint == "continuous":
+                call = "angular"
+                zero = 0.0
+                limit = math.pi
+            else:
+                raise NotImplementedError
+
             object.__setattr__(self, "call", call)
             object.__setattr__(self, "sign", sign)
             object.__setattr__(self, "axis", axis)
-
-    @dataclasses.dataclass(init=False, frozen=True)
-    class Limit:
-        zero: float
-        lower: float
-        upper: float
-
-        def __init__(self, joint, lower, upper):
-            if joint in ("prismatic", "revolute"):
-                lower = float(lower)
-                upper = float(upper)
-                zero = (lower + upper) / 2.0
-            elif joint == "fixed":
-                lower = 0.0
-                upper = 0.0
-                zero = 0.0
-            elif joint == "continuous":
-                lower = -math.pi
-                upper = math.pi
-                zero = 0.0
-            else:
-                raise NotImplementedError
             object.__setattr__(self, "zero", zero)
-            object.__setattr__(self, "lower", lower)
-            object.__setattr__(self, "upper", upper)
+            object.__setattr__(self, "limit", limit)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -223,7 +243,6 @@ class Joint(abc.ABC):
     parent: str
     origin: Attribute.Origin
     motion: Attribute.Motion
-    limit: Attribute.Limit
 
     def __post_init__(self):
         pass
@@ -322,9 +341,6 @@ class Spec:
             xyz = (
                 "1 0 0" if entries.length == 0 else entries.item(0).getAttribute("xyz")
             )
-            return Attribute.Motion(f_attribute(e, "type"), xyz.split(" "))
-
-        def f_limit(e):
             entries = e.getElementsByTagName("limit")
             assert entries.length == 0 or entries.length == 1
             lower = (
@@ -333,7 +349,9 @@ class Spec:
             upper = (
                 "0" if entries.length == 0 else entries.item(0).getAttribute("upper")
             )
-            return Attribute.Limit(f_attribute(e, "type"), lower, upper)
+            return Attribute.Motion(
+                f_attribute(e, "type"), xyz.split(" "), lower, upper
+            )
 
         def f_mimic(e):
             entries = e.getElementsByTagName("mimic")
@@ -346,7 +364,6 @@ class Spec:
             parent = f_attribute(f_element(e, "parent"), "link")
             origin = f_origin(e)
             motion = f_motion(e)
-            limit = f_limit(e)
             mimic = f_mimic(e)
             return Joint(
                 name=name,
@@ -354,7 +371,6 @@ class Spec:
                 parent=parent,
                 origin=origin,
                 motion=motion,
-                limit=limit,
             )
 
         def f_chain(entry, joint):

@@ -145,6 +145,15 @@ class JointState(cspace.cspace.classes.JointState):
 
         return Transform(xyz=xyz, rot=rot)
 
+    @classmethod
+    def angle(cls, position):
+        return (position + torch.pi) % (torch.pi * 2) - torch.pi
+        raise NotImplementedError
+
+    @classmethod
+    def clip(cls, position, lower, upper):
+        return torch.clip(position, min=lower, max=upper)
+
 
 class JointStateCollection(cspace.cspace.classes.JointStateCollection):
     def __init__(self, name, position):

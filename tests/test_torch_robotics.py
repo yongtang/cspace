@@ -134,9 +134,10 @@ def test_ops(transforms3d_data, device):
             rot.unsqueeze(0).flatten(0, -3),
         )
     ):
-        pi = torch.arccos(torch.zeros([], dtype=rot.dtype, device=device)) * 2
         angle = torch.abs(torch.arccos((torch.trace(r) - 1.0) / 2.0))
-        if torch.abs(angle - pi) <= torch.finfo(r.dtype).eps:  # skip test on +-180
+        if (
+            torch.abs(angle - torch.pi) <= torch.finfo(r.dtype).eps
+        ):  # skip test on +-180
             logging.getLogger(__name__).info(f"skip {index}: {v}")
             v = torch.tensor(
                 [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=v.dtype, device=device
