@@ -16,6 +16,7 @@ def test_spec(device, urdf_file):
                 (0, -0.22, 0.25, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("fixed", (1, 0, 0)),
+            limit=cspace.cspace.classes.Attribute.Limit("fixed", 0, 0),
         ),
         "right_base_joint": cspace.cspace.classes.Joint(
             name="right_base_joint",
@@ -25,6 +26,7 @@ def test_spec(device, urdf_file):
                 (0, 0, -0.6, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("fixed", (1, 0, 0)),
+            limit=cspace.cspace.classes.Attribute.Limit("fixed", 0, 0),
         ),
         "right_front_wheel_joint": cspace.cspace.classes.Joint(
             name="right_front_wheel_joint",
@@ -34,6 +36,7 @@ def test_spec(device, urdf_file):
                 (0.133333333333, 0, -0.085, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("continuous", (0, 1, 0)),
+            limit=cspace.cspace.classes.Attribute.Limit("continuous", 0, 0),
         ),
         "right_back_wheel_joint": cspace.cspace.classes.Joint(
             name="right_back_wheel_joint",
@@ -43,6 +46,7 @@ def test_spec(device, urdf_file):
                 (-0.133333333333, 0, -0.085, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("continuous", (0, 1, 0)),
+            limit=cspace.cspace.classes.Attribute.Limit("continuous", 0, 0),
         ),
         "base_to_left_leg": cspace.cspace.classes.Joint(
             name="base_to_left_leg",
@@ -52,6 +56,7 @@ def test_spec(device, urdf_file):
                 (0, 0.22, 0.25, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("fixed", (1, 0, 0)),
+            limit=cspace.cspace.classes.Attribute.Limit("fixed", 0, 0),
         ),
         "left_base_joint": cspace.cspace.classes.Joint(
             name="left_base_joint",
@@ -61,6 +66,7 @@ def test_spec(device, urdf_file):
                 (0, 0, -0.6, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("fixed", (1, 0, 0)),
+            limit=cspace.cspace.classes.Attribute.Limit("fixed", 0, 0),
         ),
         "left_front_wheel_joint": cspace.cspace.classes.Joint(
             name="left_front_wheel_joint",
@@ -70,6 +76,7 @@ def test_spec(device, urdf_file):
                 (0.133333333333, 0, -0.085, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("continuous", (0, 1, 0)),
+            limit=cspace.cspace.classes.Attribute.Limit("continuous", 0, 0),
         ),
         "left_back_wheel_joint": cspace.cspace.classes.Joint(
             name="left_back_wheel_joint",
@@ -79,6 +86,7 @@ def test_spec(device, urdf_file):
                 (-0.133333333333, 0, -0.085, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("continuous", (0, 1, 0)),
+            limit=cspace.cspace.classes.Attribute.Limit("continuous", 0, 0),
         ),
         "gripper_extension": cspace.cspace.classes.Joint(
             name="gripper_extension",
@@ -88,6 +96,7 @@ def test_spec(device, urdf_file):
                 (0.19, 0, 0.2, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("prismatic", (1, 0, 0)),
+            limit=cspace.cspace.classes.Attribute.Limit("prismatic", -0.38, 0.0),
         ),
         "left_gripper_joint": cspace.cspace.classes.Joint(
             name="left_gripper_joint",
@@ -97,6 +106,7 @@ def test_spec(device, urdf_file):
                 (0.2, 0.01, 0, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("revolute", (0, 0, 1)),
+            limit=cspace.cspace.classes.Attribute.Limit("revolute", 0.0, 0.548),
         ),
         "left_tip_joint": cspace.cspace.classes.Joint(
             name="left_tip_joint",
@@ -106,6 +116,7 @@ def test_spec(device, urdf_file):
                 (0, 0, 0, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("fixed", (1, 0, 0)),
+            limit=cspace.cspace.classes.Attribute.Limit("fixed", 0, 0),
         ),
         "right_gripper_joint": cspace.cspace.classes.Joint(
             name="right_gripper_joint",
@@ -115,6 +126,7 @@ def test_spec(device, urdf_file):
                 (0.2, -0.01, 0, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("revolute", (0, 0, -1)),
+            limit=cspace.cspace.classes.Attribute.Limit("revolute", 0.0, 0.548),
         ),
         "right_tip_joint": cspace.cspace.classes.Joint(
             name="right_tip_joint",
@@ -124,6 +136,7 @@ def test_spec(device, urdf_file):
                 (0, 0, 0, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("fixed", (1, 0, 0)),
+            limit=cspace.cspace.classes.Attribute.Limit("fixed", 0, 0),
         ),
         "head_swivel": cspace.cspace.classes.Joint(
             name="head_swivel",
@@ -133,6 +146,7 @@ def test_spec(device, urdf_file):
                 (0, 0, 0.3, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("continuous", (0, 0, 1)),
+            limit=cspace.cspace.classes.Attribute.Limit("continuous", 0, 0),
         ),
         "tobox": cspace.cspace.classes.Joint(
             name="tobox",
@@ -142,6 +156,7 @@ def test_spec(device, urdf_file):
                 (0.1814, 0, 0.1414, 0, 0, 0),
             ),
             motion=cspace.cspace.classes.Attribute.Motion("fixed", (1, 0, 0)),
+            limit=cspace.cspace.classes.Attribute.Limit("fixed", 0, 0),
         ),
     }
     for name, joint in joints.items():

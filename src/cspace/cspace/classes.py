@@ -1,4 +1,5 @@
 import abc
+import math
 import typing
 import operator
 import itertools
@@ -189,6 +190,31 @@ class Attribute:
             object.__setattr__(self, "sign", sign)
             object.__setattr__(self, "axis", axis)
 
+    @dataclasses.dataclass(init=False, frozen=True)
+    class Limit:
+        zero: float
+        lower: float
+        upper: float
+
+        def __init__(self, joint, lower, upper):
+            if joint in ("prismatic", "revolute"):
+                lower = float(lower)
+                upper = float(upper)
+                zero = (lower + upper) / 2.0
+            elif joint == "fixed":
+                lower = 0.0
+                upper = 0.0
+                zero = 0.0
+            elif joint == "continuous":
+                lower = -math.pi
+                upper = math.pi
+                zero = 0.0
+            else:
+                raise NotImplementedError
+            object.__setattr__(self, "zero", zero)
+            object.__setattr__(self, "lower", lower)
+            object.__setattr__(self, "upper", upper)
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Joint(abc.ABC):
@@ -197,6 +223,7 @@ class Joint(abc.ABC):
     parent: str
     origin: Attribute.Origin
     motion: Attribute.Motion
+    limit: Attribute.Limit
 
     def __post_init__(self):
         pass
@@ -297,6 +324,17 @@ class Spec:
             )
             return Attribute.Motion(f_attribute(e, "type"), xyz.split(" "))
 
+        def f_limit(e):
+            entries = e.getElementsByTagName("limit")
+            assert entries.length == 0 or entries.length == 1
+            lower = (
+                "0" if entries.length == 0 else entries.item(0).getAttribute("lower")
+            )
+            upper = (
+                "0" if entries.length == 0 else entries.item(0).getAttribute("upper")
+            )
+            return Attribute.Limit(f_attribute(e, "type"), lower, upper)
+
         def f_mimic(e):
             entries = e.getElementsByTagName("mimic")
             assert entries.length == 0, "TODO: mimic"
@@ -308,6 +346,7 @@ class Spec:
             parent = f_attribute(f_element(e, "parent"), "link")
             origin = f_origin(e)
             motion = f_motion(e)
+            limit = f_limit(e)
             mimic = f_mimic(e)
             return Joint(
                 name=name,
@@ -315,6 +354,7 @@ class Spec:
                 parent=parent,
                 origin=origin,
                 motion=motion,
+                limit=limit,
             )
 
         def f_chain(entry, joint):
