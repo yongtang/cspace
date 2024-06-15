@@ -155,8 +155,10 @@ def test_ops(transforms3d_data, device):
     assert torch.allclose(val, se3_inv, atol=1e-4)
 
 
-def test_spec(device, urdf_file):
-    spec = cspace.cspace.classes.Spec(description=pathlib.Path(urdf_file).read_text())
+def test_spec(device, urdf_file_tutorial):
+    spec = cspace.cspace.classes.Spec(
+        description=pathlib.Path(urdf_file_tutorial).read_text()
+    )
 
     joint = spec.joint("base_to_right_leg")
 
@@ -244,34 +246,42 @@ def test_spec(device, urdf_file):
     assert torch.allclose(transform.qua, qua, atol=1e-4)
 
 
-def test_transform(device, urdf_file, joint_state, link_pose):
-    spec = cspace.cspace.classes.Spec(description=pathlib.Path(urdf_file).read_text())
+def test_transform(
+    device, urdf_file_tutorial, joint_state_tutorial, link_pose_tutorial
+):
+    spec = cspace.cspace.classes.Spec(
+        description=pathlib.Path(urdf_file_tutorial).read_text()
+    )
 
-    joint_state = dict(zip(joint_state.name, joint_state.position))
+    joint_state_tutorial = dict(
+        zip(joint_state_tutorial.name, joint_state_tutorial.position)
+    )
     name = tuple(joint.name for joint in spec.joint if joint.motion.call)
     position = torch.tensor(
-        tuple(joint_state[entry] for entry in name), dtype=torch.float64, device=device
+        tuple(joint_state_tutorial[entry] for entry in name),
+        dtype=torch.float64,
+        device=device,
     )
     state = cspace.torch.classes.JointStateCollection(name, position)
 
     for link in spec.link:
-        if link in link_pose:
+        if link in link_pose_tutorial:
             pose = spec.forward(state, link)
             true_position = torch.tensor(
                 [
-                    link_pose[link].pose.position.x,
-                    link_pose[link].pose.position.y,
-                    link_pose[link].pose.position.z,
+                    link_pose_tutorial[link].pose.position.x,
+                    link_pose_tutorial[link].pose.position.y,
+                    link_pose_tutorial[link].pose.position.z,
                 ],
                 device=device,
                 dtype=torch.float64,
             )
             true_orientation = torch.tensor(
                 [
-                    link_pose[link].pose.orientation.x,
-                    link_pose[link].pose.orientation.y,
-                    link_pose[link].pose.orientation.z,
-                    link_pose[link].pose.orientation.w,
+                    link_pose_tutorial[link].pose.orientation.x,
+                    link_pose_tutorial[link].pose.orientation.y,
+                    link_pose_tutorial[link].pose.orientation.z,
+                    link_pose_tutorial[link].pose.orientation.w,
                 ],
                 device=device,
                 dtype=torch.float64,

@@ -4,8 +4,10 @@ import pathlib
 import logging
 
 
-def test_spec(device, urdf_file):
-    spec = cspace.cspace.classes.Spec(description=pathlib.Path(urdf_file).read_text())
+def test_spec(device, urdf_file_tutorial):
+    spec = cspace.cspace.classes.Spec(
+        description=pathlib.Path(urdf_file_tutorial).read_text()
+    )
 
     joints = {
         "base_to_right_leg": cspace.cspace.classes.Joint(

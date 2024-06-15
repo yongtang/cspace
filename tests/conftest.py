@@ -193,7 +193,7 @@ def transforms3d_data(request):
 
 
 @pytest.fixture(scope="session")
-def urdf_file(tmp_path_factory):
+def urdf_file_tutorial(tmp_path_factory):
     url = (
         "https://raw.githubusercontent.com/ros/urdf_tutorial/ros2/urdf/07-physics.urdf"
     )
@@ -203,7 +203,7 @@ def urdf_file(tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
-def joint_state(urdf_file):
+def joint_state_tutorial(urdf_file_tutorial):
     name = [
         "right_front_wheel_joint",
         "right_back_wheel_joint",
@@ -229,7 +229,7 @@ def joint_state(urdf_file):
 
 
 @pytest.fixture(scope="session")
-def link_pose(urdf_file):
+def link_pose_tutorial(urdf_file_tutorial):
     Point = collections.namedtuple("Point", ["x", "y", "z"])
     Quaternion = collections.namedtuple("Quaternion", ["x", "y", "z", "w"])
     Pose = collections.namedtuple("Pose", ["position", "orientation"])
@@ -263,8 +263,3 @@ def link_pose(urdf_file):
         )
         for k, v in poses.items()
     }
-
-
-@pytest.fixture(scope="session")
-def random_seed():
-    return 12345
