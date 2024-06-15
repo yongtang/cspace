@@ -234,7 +234,6 @@ def test_spec(device, urdf_file):
             logging.getLogger(__name__).info(
                 "".join(
                     [
-                        f"\n",
                         f"\n----------------------------------------",
                         f"\n[{source} => {target}]",
                         f"\nROUTE: {route}",

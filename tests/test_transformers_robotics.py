@@ -68,7 +68,7 @@ def test_train(
 
     inverse = kinematics.inverse(pose)
     logging.getLogger(__name__).info(
-        ("\n[Inverse Kinematics]" + "\nPred: {} {}" + "\nTrue: {} {}" + "\n").format(
+        ("[Inverse Kinematics]" + "\nPred: {} {}" + "\nTrue: {} {}").format(
             inverse.name, inverse.position, state.name, state.position
         )
     )

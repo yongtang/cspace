@@ -223,7 +223,9 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         return LinkPoseCollection(base, link, position, orientation)
 
     def apply(self, spec, delta):
-        assert self.position.shape == delta.shape
+        assert self.position.shape == delta.shape, "{} vs. {}".format(
+            self.position.shape, delta.shape
+        )
         position = torch.stack(
             tuple(
                 self(name)

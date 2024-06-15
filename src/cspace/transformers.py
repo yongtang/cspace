@@ -164,20 +164,29 @@ class Kinematics:
 
         optimizer = torch.optim.AdamW(self.model.parameters())
 
-        zero = cspace.torch.classes.JointStateCollection.zero(self.spec, self.joint)
-
         logging.getLogger(__name__).info(
-            "\n[Train] ----- Dataset: {} progress".format(entry_total)
+            "[Train] ----- Dataset: {} - creation".format(entry_total)
+        )
+        zero = cspace.torch.classes.JointStateCollection.zero(
+            self.spec, self.joint, batch=[entry_total]
+        )
+        data = zero.apply(
+            self.spec,
+            torch.rand(
+                entry_total, len(self.joint), generator=generator, dtype=torch.float64
+            ),
+        )
+        logging.getLogger(__name__).info(
+            "[Train] ----- Dataset: {} - progress".format(entry_total)
         )
         dataset = list(
-            zero.apply(
-                self.spec,
-                torch.rand(len(self.joint), generator=generator, dtype=torch.float64),
+            cspace.torch.classes.JointStateCollection(
+                name=data.name, position=data.position[index]
             )
-            for _ in range(entry_total)
+            for index in range(entry_total)
         )
         logging.getLogger(__name__).info(
-            "\n[Train] ----- Dataset: {} complete".format(entry_total)
+            "[Train] ----- Dataset: {} - complete".format(entry_total)
         )
 
         loader = torch.utils.data.DataLoader(
@@ -200,7 +209,7 @@ class Kinematics:
                 count += len(pred)
                 total += loss.item()
                 logging.getLogger(__name__).info(
-                    "\n[Train] ----- Epoch {} [{}/{}] - Loss: {} [/Train]".format(
+                    "[Train] ----- Epoch {} [{}/{}] - Loss: {} [/Train]".format(
                         epoch,
                         count,
                         len(dataset),
