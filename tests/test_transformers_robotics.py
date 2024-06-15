@@ -48,7 +48,7 @@ def test_kinematics(device, urdf_file, joint_state, link_pose):
 @pytest.mark.parametrize(
     "model,seed,total,epoch,batch",
     [
-        ("gpt2", 12345, 16 * 1024, 20, 2048),
+        ("gpt2", 12345, 8 * 1024 * 1024, 1, 32 * 1024),
     ],
 )
 def test_train(
@@ -68,7 +68,7 @@ def test_train(
 
     inverse = kinematics.inverse(pose)
     logging.getLogger(__name__).info(
-        ("\n[Inverse Kinematics]" + "\nPred: {}" + "\nTrue: {}" + "\n").format(
-            inverse._position_, state._position_
+        ("\n[Inverse Kinematics]" + "\nPred: {} {}" + "\nTrue: {} {}" + "\n").format(
+            inverse.name, inverse.position, state.name, state.position
         )
     )

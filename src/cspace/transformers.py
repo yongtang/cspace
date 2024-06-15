@@ -212,7 +212,13 @@ class Kinematics:
         dataset = list(
             cspace.torch.classes.JointStateCollection(
                 self.joint,
-                torch.rand(len(self.joint), generator=generator, dtype=torch.float64),
+                tuple(
+                    zero(name).apply(
+                        self.spec,
+                        torch.rand(1, generator=generator, dtype=torch.float64),
+                    )
+                    for index, name in enumerate(self.joint)
+                ),
             )
             for _ in range(entry_total)
         )
