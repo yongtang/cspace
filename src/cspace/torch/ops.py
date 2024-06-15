@@ -236,6 +236,21 @@ def se3_mul(xyz_a, rot_a, xyz_b, rot_b):
     rot_a = torch.as_tensor(rot_a, dtype=xyz_a.dtype)
     xyz_b = torch.as_tensor(xyz_b)
     rot_b = torch.as_tensor(rot_b, dtype=xyz_b.dtype)
+
+    batch_a = {xyz_a.shape[:-1], rot_a.shape[:-2]}
+    batch_b = {xyz_b.shape[:-1], rot_b.shape[:-2]}
+    assert len(batch_a) == 1
+    assert len(batch_b) == 1
+    batch_a = list(next(iter(batch_a)))
+    batch_b = list(next(iter(batch_b)))
+    batch = batch_a if len(batch_a) > len(batch_b) else batch_b
+    if len(batch_a) < len(batch):
+        xyz_a = xyz_a.expand(batch + [3])
+        rot_a = rot_a.expand(batch + [3, 3])
+    if len(batch_b) < len(batch):
+        xyz_b = xyz_b.expand(batch + [3])
+        rot_b = rot_b.expand(batch + [3, 3])
+
     batch = {xyz_a.shape[:-1], rot_a.shape[:-2], xyz_b.shape[:-1], rot_b.shape[:-2]}
     assert len(batch) == 1
     batch = list(next(iter(batch)))

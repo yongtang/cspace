@@ -5,7 +5,21 @@ import torch
 
 
 class LinkPose(cspace.cspace.classes.LinkPose):
-    pass
+    def delta(self, spec, other):
+        assert self.base == other.base and self.name == other.name
+        self_transform = Transform(
+            xyz=self.position, rot=cspace.torch.ops.qua_to_rot(self.orientation)
+        )
+        other_transform = Transform(
+            xyz=other.position, rot=cspace.torch.ops.qua_to_rot(other.orientation)
+        )
+
+        delta_transform = self_transform.inverse() * other_transform
+
+        delta_scale = torch.special.expit(
+            cspace.torch.ops.se3_log(delta_transform.xyz, delta_transform.rot)
+        )
+        return delta_scale
 
 
 class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
@@ -146,13 +160,12 @@ class JointState(cspace.cspace.classes.JointState):
         return Transform(xyz=xyz, rot=rot)
 
     @classmethod
-    def angle(cls, position):
-        return (position + torch.pi) % (torch.pi * 2) - torch.pi
-        raise NotImplementedError
+    def angle(cls, value):
+        return (value + torch.pi) % (torch.pi * 2) - torch.pi
 
     @classmethod
-    def clip(cls, position, lower, upper):
-        return torch.clip(position, min=lower, max=upper)
+    def clip(cls, value, lower, upper):
+        return torch.clip(value, min=lower, max=upper)
 
 
 class JointStateCollection(cspace.cspace.classes.JointStateCollection):
@@ -200,9 +213,30 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         orientation = torch.stack(tuple(entry.qua for entry in entries), dim=-1)
         return LinkPoseCollection(base, link, position, orientation)
 
+    @classmethod
+    def stack(cls, collections):
+        name = set(collection.name for collection in collections)
+        assert len(name) == 1
+        name = next(iter(name))
+
+        position = torch.stack(tuple(collection.position for collection in collections))
+
+        return cls(name=name, position=position)
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Transform(cspace.cspace.classes.Transform):
+    def __post_init__(self):
+        xyz = torch.as_tensor(self.xyz)
+        rot = torch.as_tensor(self.rot, dtype=xyz.dtype)
+        batch = {xyz.shape[:-1], rot.shape[:-2]}
+        assert len(batch) == 1, "{} vs. {}".format(xyz.shape, rot.shape)
+        assert xyz.shape[-1:] == torch.Size([3]) and rot.shape[-2:] == torch.Size(
+            [3, 3]
+        ), "{} vs. {}".format(xyz.shape, rot.shape)
+        object.__setattr__(self, "xyz", xyz)
+        object.__setattr__(self, "rot", rot)
+
     @property
     def rpy(self):
         return cspace.torch.ops.rot_to_rpy(self.rot)

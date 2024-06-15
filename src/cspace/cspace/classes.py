@@ -15,6 +15,10 @@ class LinkPose(abc.ABC):
     position: typing.Any
     orientation: typing.Any
 
+    @abc.abstractmethod
+    def delta(self, spec, other):
+        raise NotImplementedError
+
 
 class LinkPoseCollection(abc.ABC):
     @property
@@ -47,19 +51,74 @@ class JointState(abc.ABC):
     name: str
     position: typing.Any
 
-    def scale(self, spec):
+    def delta(self, spec, other):
+        assert self.name == other.name
+
         joint = spec.joint(self.name)
-        position = self.position
-        position = self.angle(position) if joint.motion.call == "angular" else position
-        position = self.clip(
-            position,
+
+        self_value = self.position
+        self_value = (
+            self.angle(self_value) if joint.motion.call == "angular" else self_value
+        )
+        self_value = self.clip(
+            self_value,
             joint.motion.zero - joint.motion.limit,
             joint.motion.zero + joint.motion.limit,
         )
-        position = (position - joint.motion.zero) / joint.motion.limit
-        return position
+        self_scale = (self_value - (joint.motion.zero - joint.motion.limit)) / (
+            joint.motion.limit * 2.0
+        )
 
-        return position
+        other_value = other.position
+        other_value = (
+            self.angle(other_value) if joint.motion.call == "angular" else other_value
+        )
+        other_value = self.clip(
+            other_value,
+            joint.motion.zero - joint.motion.limit,
+            joint.motion.zero + joint.motion.limit,
+        )
+        other_scale = (other_value - (joint.motion.zero - joint.motion.limit)) / (
+            joint.motion.limit * 2.0
+        )
+
+        delta_scale = (other_scale - self_scale + 1.0) % 1.0
+
+        delta_scale = self.clip(delta_scale, 0.0, 1.0)
+
+        return delta_scale
+
+    def apply(self, spec, delta):
+        joint = spec.joint(self.name)
+
+        delta_scale = self.clip(delta, 0.0, 1.0)
+
+        self_value = self.position
+        self_value = (
+            self.angle(self_value) if joint.motion.call == "angular" else self_value
+        )
+        self_value = self.clip(
+            self_value,
+            joint.motion.zero - joint.motion.limit,
+            joint.motion.zero + joint.motion.limit,
+        )
+        self_scale = (self_value - (joint.motion.zero - joint.motion.limit)) / (
+            joint.motion.limit * 2.0
+        )
+
+        other_scale = (self_scale + delta_scale + 1.0) % 1.0
+
+        other_value = other_scale * (joint.motion.limit * 2.0) + (
+            joint.motion.zero - joint.motion.limit
+        )
+
+        other_value = self.clip(
+            other_value,
+            joint.motion.zero - joint.motion.limit,
+            joint.motion.zero + joint.motion.limit,
+        )
+
+        return other_value
 
     def transform(self, spec):
         joint = spec.joint(self.name)
@@ -102,12 +161,12 @@ class JointState(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def angle(cls, position):
+    def angle(cls, value):
         raise NotImplementedError
 
     @classmethod
     @abc.abstractmethod
-    def clip(cls, position, lower, upper):
+    def clip(cls, value, lower, upper):
         raise NotImplementedError
 
 
@@ -149,6 +208,11 @@ class JointStateCollection(abc.ABC):
             ],
             self.identity(),
         )
+
+    @classmethod
+    @abc.abstractmethod
+    def stack(cls, collections):
+        raise NotImplementedError
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -246,6 +310,14 @@ class Joint(abc.ABC):
 
     def __post_init__(self):
         pass
+
+    @property
+    def length(self):
+        return math.sqrt(
+            self.origin.xyz[0] * self.origin.xyz[0]
+            + self.origin.xyz[1] * self.origin.xyz[1]
+            + self.origin.xyz[2] * self.origin.xyz[2]
+        ) + (self.motion.limit * 2.0 if self.motion.call != "angular" else 0.0)
 
 
 class JointCollection(tuple):

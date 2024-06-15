@@ -1,116 +1,19 @@
 import cspace.cspace.classes
 import cspace.torch.classes
 import transformers
-import dataclasses
-import functools
 import itertools
 import logging
 import torch
-import abc
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class DataIndex:
-    e: str | None
-    name: str | None
-    field: int | None
-
-
-class DataBlock(abc.ABC):
-    def __init__(self, dimension):
-        self.dimension = int(dimension)
-
-    def encode(self, data):
-        value = torch.as_tensor(data, dtype=torch.float64)
-        value = torch.special.expit(value)
-        value = torch.clip(
-            (value * (self.dimension - 1)).to(torch.int64),
-            min=0,
-            max=(self.dimension - 1),
-        )
-        return value
-
-    def decode(self, data):
-        value = torch.as_tensor(data, dtype=torch.int64)
-        value = torch.clip(
-            (value % self.dimension).to(torch.float64) / (self.dimension - 1),
-            min=0.0,
-            max=1.0,
-        )
-        value = torch.special.logit(value)
-        return value
-
-
-@dataclasses.dataclass(frozen=True, init=False)
-class NoneIndex(DataIndex):
-    def __init__(self):
-        object.__setattr__(self, "e", None)
-        object.__setattr__(self, "name", None)
-        object.__setattr__(self, "field", None)
-
-
-@dataclasses.dataclass(frozen=True, init=False)
-class PoseIndex(DataIndex):
-    def __init__(self, name, field):
-        object.__setattr__(self, "e", "pose")
-        object.__setattr__(self, "name", name)
-        object.__setattr__(self, "field", field)
-
-
-@dataclasses.dataclass(frozen=True, init=False)
-class JointIndex(DataIndex):
-    def __init__(self, name):
-        object.__setattr__(self, "e", "joint")
-        object.__setattr__(self, "name", name)
-        object.__setattr__(self, "field", None)
-
-
-class BlockEncoding(abc.ABC):
-    def __init__(self, spec, link):
-        self.blocks = []
-        self.blocks.append((NoneIndex(), DataBlock(dimension=1)))
-        for name in link:
-            for field in range(6):
-                self.blocks.append(
-                    (PoseIndex(name=name, field=field), DataBlock(dimension=1000))
-                )
-        for name in tuple(joint.name for joint in spec.joint if joint.motion.call):
-            self.blocks.append((JointIndex(name=name), DataBlock(dimension=1000)))
-
-    def encode(self, data):
-        index, value = data
-        index = self.indices.index(index)
-        count = sum(map(lambda i: self.entries[i].dimension, range(index)))
-        block = self.entries[index]
-        return count + block.encode(value)
-
-    def decode(self, data):
-        count = 0
-        for index, block in self.blocks:
-            if count <= data and data < count + block.dimension:
-                return index, block.decode(data - count)
-            count += block.dimension
-        raise ValueError(f"{data}")
-
-    @functools.cached_property
-    def indices(self):
-        return tuple(index for index, block in self.blocks)
-
-    @functools.cached_property
-    def entries(self):
-        return tuple(block for index, block in self.blocks)
-
-    @functools.cached_property
-    def dimension(self):
-        return sum(map(lambda block: block.dimension, self.entries))
 
 
 class Model(torch.nn.Module):
-    def __init__(self, transformer, dimension):
+    def __init__(self, transformer):
         super().__init__()
-        self.transformer = transformer
-        self.embedding = torch.nn.Embedding(
-            dimension, transformer.get_input_embeddings().embedding_dim
+        self.embedding = torch.nn.LazyLinear(
+            transformer.get_input_embeddings().embedding_dim,
+            device=transformer.get_input_embeddings().weight.device,
+            dtype=transformer.get_input_embeddings().weight.dtype,
+            bias=False,
         )
         transformer.get_input_embeddings().reset_parameters()
         for param in transformer.get_input_embeddings().parameters():
@@ -118,17 +21,22 @@ class Model(torch.nn.Module):
         transformer.get_output_embeddings().reset_parameters()
         for param in transformer.get_output_embeddings().parameters():
             param.requires_grad = False
+        self.transformer = transformer
 
     def forward(self, batch):
         entries = [entry for entry in batch]
 
-        device = self.transformer.get_input_embeddings().weight.device
-
         data = entries
         mask = list(map(lambda e: torch.ones(len(e)), data))
 
-        data = torch.nn.utils.rnn.pad_sequence(data, batch_first=True).to(device)
-        mask = torch.nn.utils.rnn.pad_sequence(mask, batch_first=True).to(device)
+        data = (
+            torch.nn.utils.rnn.pad_sequence(data, batch_first=True)
+            .to(self.embedding.weight.device)
+            .to(self.embedding.weight.dtype)
+        )
+        mask = torch.nn.utils.rnn.pad_sequence(mask, batch_first=True).to(
+            self.embedding.weight.device
+        )
         data = self.transformer(
             inputs_embeds=self.embedding(data),
             attention_mask=mask,
@@ -138,7 +46,7 @@ class Model(torch.nn.Module):
             [data[i, j] for i, j in enumerate(torch.count_nonzero(mask, dim=1) - 1)]
         )
 
-        data = torch.mm(data, self.embedding.weight.T).cpu()
+        data = torch.mm(data, self.embedding.weight).cpu()
         return data
 
 
@@ -148,6 +56,8 @@ class Kinematics:
     link: tuple[str]
     joint: tuple[str]
     model: torch.nn.Module
+    bucket: int = 1000
+    loss_fn = torch.nn.CrossEntropyLoss()
 
     def __init__(self, description, *link, base=None, model=None):
         spec = cspace.cspace.classes.Spec(description=description)
@@ -158,17 +68,14 @@ class Kinematics:
 
         joint = list([e for e, _ in spec.route(e, base)] for e in link)
         joint = list(set(itertools.chain.from_iterable(joint)))
-        joint = tuple(e for e in joint if spec.joint(e).motion.call)
+        joint = tuple(e for e in sorted(joint) if spec.joint(e).motion.call)
 
         self.spec = spec
         self.base = base
         self.link = link
         self.joint = joint
         self.model = (
-            Model(
-                transformer=transformers.AutoModelForCausalLM.from_pretrained(model),
-                dimension=self.encoding.dimension,
-            )
+            Model(transformer=transformers.AutoModelForCausalLM.from_pretrained(model))
             if model
             else None
         )
@@ -177,93 +84,114 @@ class Kinematics:
         return state.forward(self.spec, *self.link, base=self.base)
 
     def inverse(self, pose):
-        data = self.tokenize(pose)
-        name = list(joint.name for joint in self.spec.joint if joint.motion.call)
+
         with torch.no_grad():
-            for index in range(len(name)):
-                pred = self.model(torch.tensor(data).unsqueeze(0))
-                pred = torch.argmax(pred)
-                data = data + tuple([pred])
-        data = data[:-1] + tuple([0])
-        return self.assembly(data)
+            data = self.head(pose)
 
-    def tokenize(self, data):
-        def f_pose(spec, link, base, zero, link_transforms):
-            zero_transform = zero.transform(spec, link, base)
-            link_transform = link_transforms[link]
-            transform = zero_transform.inverse() * link_transform
-            return [
-                self.encoding.encode((PoseIndex(name=link, field=field), entry))
-                for field, entry in enumerate(
-                    cspace.torch.ops.se3_log(transform.xyz, transform.rot)
-                )
-            ]
+            batch = list(data.shape[:-2])
 
-        name = tuple(joint.name for joint in self.spec.joint if joint.motion.call)
-        zero = cspace.torch.classes.JointStateCollection(name, tuple(0.0 for e in name))
+            data = torch.reshape(data, [-1] + list(data.shape[-2:]))
 
-        if isinstance(data, cspace.cspace.classes.JointStateCollection):
-            assert tuple(sorted(data.name)) == tuple(sorted(name))
-            link_transforms = {
-                link: data.transform(self.spec, link, self.base) for link in self.link
-            }
-            state = data
-        elif isinstance(data, cspace.cspace.classes.LinkPoseCollection):
+            pred = self.model(data)
 
-            def f_link(pose, base):
-                assert pose.base == base
-                transform = cspace.torch.classes.Transform(
-                    xyz=pose.position, rot=cspace.torch.ops.qua_to_rot(pose.orientation)
-                )
-                return transform
+            pred = torch.reshape(pred, batch + list(pred.shape[-1:]))
 
-            assert tuple(sorted(data.name)) == tuple(sorted(self.link))
-            link_transforms = {
-                link: f_link(data(link), self.base) for link in self.link
-            }
-            state = None
-        else:
-            raise ValueError(f"{data}")
+            encoded = torch.unflatten(pred, -1, (-1, self.bucket))
+            assert encoded.shape[-2:] == torch.Size(
+                [6 * len(self.link) + 1 * len(self.joint), self.bucket]
+            )
+            encoded = encoded[..., 6 * len(self.link) :, :]
 
-        entries = tuple(
-            itertools.chain.from_iterable(
+            delta_value = torch.argmax(encoded, dim=-1)
+            delta_value = delta_value.to(torch.float64) / (self.bucket - 1)
+            delta_value = torch.clip(delta_value, min=0.0, max=1.0)
+
+            zero_state = cspace.torch.classes.JointStateCollection(
+                self.joint,
+                torch.stack(
+                    tuple(
+                        torch.tensor(self.spec.joint(name).motion.zero).expand(batch)
+                        for name in self.joint
+                    ),
+                    dim=-1,
+                ),
+            )
+
+            return cspace.torch.classes.JointStateCollection(
+                self.joint,
                 tuple(
-                    f_pose(self.spec, link, self.base, zero, link_transforms)
-                    for link in self.link
-                )
+                    zero_state(name).apply(self.spec, delta_value[index])
+                    for index, name in enumerate(self.joint)
+                ),
+            )
+
+    def loss(self, pred, true):
+        batch = {pred.shape[:-1], true.position.shape[:-1]}
+        assert len(batch) == 1
+        batch = next(iter(batch))
+
+        pred_value = torch.unflatten(pred, -1, (-1, self.bucket))
+        assert pred_value.shape[-2:] == torch.Size(
+            [6 * len(self.link) + 1 * len(self.joint), self.bucket]
+        )
+        pred_value = pred_value[..., 6 * len(self.link) :, :]
+        pred_value = torch.transpose(pred_value, -1, -2)
+
+        zero_state = cspace.torch.classes.JointStateCollection(
+            self.joint,
+            torch.stack(
+                tuple(
+                    torch.tensor(self.spec.joint(name).motion.zero).expand(batch)
+                    for name in self.joint
+                ),
+                dim=-1,
+            ),
+        )
+        true_state = cspace.torch.classes.JointStateCollection(
+            self.joint,
+            torch.stack(tuple(true(name).position for name in self.joint), dim=-1),
+        )
+        true_delta = torch.stack(
+            tuple(
+                zero_state(name).delta(self.spec, true_state(name))
+                for name in self.joint
+            ),
+            dim=-1,
+        )
+        true_value = true_delta * (self.bucket - 1)
+        true_value = torch.clip(true_value.to(torch.int64), min=0, max=self.bucket - 1)
+        return self.loss_fn(pred_value, true_value)
+
+    def head(self, pose):
+        batch = list(pose.position.shape[:-2])
+
+        zero = self.forward(
+            cspace.torch.classes.JointStateCollection(
+                self.joint,
+                torch.stack(
+                    tuple(
+                        torch.tensor(self.spec.joint(name).motion.zero).expand(batch)
+                        for name in self.joint
+                    ),
+                    dim=-1,
+                ),
             )
         )
-        entries = entries + tuple([self.encoding.encode((NoneIndex(), 0.0))])
+        delta = torch.stack(
+            tuple(zero(name).delta(self.spec, pose(name)) for name in self.link), dim=-1
+        )
+        blank = torch.zeros(batch + [1, len(self.joint)])
 
-        if state is not None:
-            entries = entries + tuple(
-                self.encoding.encode((JointIndex(name=name), state(name).position))
-                for name in state.name
-            )
-            entries = entries + tuple([self.encoding.encode((NoneIndex(), 0.0))])
-        return entries
+        delta = torch.reshape(delta, batch + [-1])
+        blank = torch.reshape(blank, batch + [-1])
 
-    def assembly(self, data):
-        entries = tuple(map(self.encoding.decode, data))
-        index = list(i for i, (index, entry) in enumerate(entries) if index.e is None)
-        index = next(iter(index))
-        poses = entries[:index]
-        entries = entries[index + 1 :]
-        index = list(i for i, (index, entry) in enumerate(entries) if index.e is None)
-        if len(index) == 0:
-            raise NotImplementedError
-
-        states = entries
-        name = tuple(joint.name for joint in self.spec.joint if joint.motion.call)
-        position = [0.0 for e in name]
-        for index, entry in states:
-            if index.e == "joint":
-                position[name.index(index.name)] += entry
-        return cspace.torch.classes.JointStateCollection(name, position)
-
-    @property
-    def encoding(self):
-        return BlockEncoding(self.spec, self.link)
+        value = torch.concatenate((delta, blank), dim=-1)
+        value = value * (self.bucket - 1)
+        value = torch.clip(value.to(torch.int64), min=0, max=self.bucket - 1)
+        encoded = torch.nn.functional.one_hot(value, self.bucket)
+        encoded = torch.flatten(encoded, -2, -1)
+        encoded = torch.unsqueeze(encoded, -2)
+        return encoded
 
     def train(self, total=None, epoch=None, batch=None, device=None, seed=None):
         entry_total = total if total else 1024
@@ -272,47 +200,40 @@ class Kinematics:
 
         generator = torch.Generator().manual_seed(seed)
 
-        loss_fn = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.AdamW(self.model.parameters())
 
-        dataset = []
-
-        entry_index = 0
-        while entry_index < entry_total:
-            name = tuple(joint.name for joint in self.spec.joint if joint.motion.call)
-            position = torch.rand(len(name), generator=generator, dtype=torch.float64)
-            state = cspace.torch.classes.JointStateCollection(name, position)
-            encoded = self.tokenize(state)
-            offset = encoded.index(0) + 1
-            for length in range(offset, len(encoded)):
-                dataset.append(torch.tensor(encoded[: length + 1]))
-                entry_index += 1
-            if entry_index % 512 == 0:
-                logging.getLogger(__name__).info(f"Dataset[{entry_index}]")
-        dataset = dataset[:entry_total]
-        logging.getLogger(__name__).info(f"Dataset[{entry_total}]")
-
-        input_dataset = list(map(lambda e: e[:-1], dataset))
-        label_dataset = list(map(lambda e: e[-1], dataset))
-
-        input_loader = torch.utils.data.DataLoader(
-            input_dataset,
-            batch_size=batch_size,
-            collate_fn=list,
+        zero = cspace.torch.classes.JointStateCollection(
+            self.joint, tuple(self.spec.joint(name).motion.zero for name in self.joint)
         )
 
-        label_loader = torch.utils.data.DataLoader(
-            label_dataset,
+        logging.getLogger(__name__).info(
+            "\n[Train] ----- Dataset: {} progress".format(entry_total)
+        )
+        dataset = list(
+            cspace.torch.classes.JointStateCollection(
+                self.joint,
+                torch.rand(len(self.joint), generator=generator, dtype=torch.float64),
+            )
+            for _ in range(entry_total)
+        )
+        logging.getLogger(__name__).info(
+            "\n[Train] ----- Dataset: {} complete".format(entry_total)
+        )
+
+        loader = torch.utils.data.DataLoader(
+            dataset,
             batch_size=batch_size,
+            collate_fn=cspace.torch.classes.JointStateCollection.stack,
         )
 
         self.model.train()
         self.model.to(device)
         for epoch in range(epoch_total):
             total, count = 0, 0
-            for batch, (data, true) in enumerate(zip(input_loader, label_loader)):
+            for batch, true in enumerate(loader):
+                data = self.head(self.forward(true))
                 pred = self.model(data)
-                loss = loss_fn(pred, true)
+                loss = self.loss(pred, true)
                 loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()
