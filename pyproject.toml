@@ -7,6 +7,10 @@ license = {file = "LICENSE.txt"}
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 [tool.pytest.ini_options]
+log_cli = true
+log_cli_level = "info"
+log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
 pythonpath = ["src"]
 [tool.autoflake]
 in-place = true
