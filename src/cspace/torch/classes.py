@@ -6,7 +6,10 @@ import torch
 
 class LinkPose(cspace.cspace.classes.LinkPose):
     def delta(self, spec, other):
-        assert self.base == other.base and self.name == other.name
+        assert self.base == other.base
+        assert self.name == other.name
+        assert self.position.shape == other.position.shape
+        assert self.orientation.shape == other.orientation.shape
         self_transform = Transform(
             xyz=self.position, rot=cspace.torch.ops.qua_to_rot(self.orientation)
         )
@@ -54,6 +57,12 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
             name=name,
             position=torch.select(self.position, dim=-1, index=index),
             orientation=torch.select(self.orientation, dim=-1, index=index),
+        )
+
+    def delta(self, spec, other):
+        assert self.name == other.name
+        return torch.stack(
+            tuple(self(name).delta(spec, other(name)) for name in self.name), dim=-1
         )
 
 
@@ -212,6 +221,26 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         position = torch.stack(tuple(entry.xyz for entry in entries), dim=-1)
         orientation = torch.stack(tuple(entry.qua for entry in entries), dim=-1)
         return LinkPoseCollection(base, link, position, orientation)
+
+    def apply(self, spec, delta):
+        assert self.position.shape == delta.shape
+        position = torch.stack(
+            tuple(
+                self(name)
+                .apply(spec, torch.select(delta, dim=-1, index=index))
+                .position
+                for index, name in enumerate(self.name)
+            ),
+            dim=-1,
+        )
+        return self.__class__(name=self.name, position=position)
+
+    def delta(self, spec, other):
+        assert self.name == other.name
+        return torch.stack(
+            tuple(self(name).delta(spec, other(name)) for name in self.name),
+            dim=-1,
+        )
 
     @classmethod
     def stack(cls, collections):

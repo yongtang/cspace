@@ -106,17 +106,10 @@ class Kinematics:
             delta_value = delta_value.to(torch.float64) / (self.bucket - 1)
             delta_value = torch.clip(delta_value, min=0.0, max=1.0)
 
-            zero_state = cspace.torch.classes.JointStateCollection.zero(
+            zero = cspace.torch.classes.JointStateCollection.zero(
                 self.spec, self.joint, batch
             )
-
-            return cspace.torch.classes.JointStateCollection(
-                self.joint,
-                tuple(
-                    zero_state(name).apply(self.spec, delta_value[index])
-                    for index, name in enumerate(self.joint)
-                ),
-            )
+            return zero.apply(self.spec, delta_value)
 
     def loss(self, pred, true):
         batch = {pred.shape[:-1], true.position.shape[:-1]}
@@ -137,13 +130,7 @@ class Kinematics:
             self.joint,
             torch.stack(tuple(true(name).position for name in self.joint), dim=-1),
         )
-        true_delta = torch.stack(
-            tuple(
-                zero_state(name).delta(self.spec, true_state(name))
-                for name in self.joint
-            ),
-            dim=-1,
-        )
+        true_delta = zero_state.delta(self.spec, true_state)
         true_value = true_delta * (self.bucket - 1)
         true_value = torch.clip(true_value.to(torch.int64), min=0, max=self.bucket - 1)
         return self.loss_fn(pred_value, true_value)
@@ -154,9 +141,7 @@ class Kinematics:
         zero = self.forward(
             cspace.torch.classes.JointStateCollection.zero(self.spec, self.joint, batch)
         )
-        delta = torch.stack(
-            tuple(zero(name).delta(self.spec, pose(name)) for name in self.link), dim=-1
-        )
+        delta = zero.delta(self.spec, pose)
         blank = torch.zeros(batch + [1, len(self.joint)])
 
         delta = torch.reshape(delta, batch + [-1])
@@ -185,15 +170,9 @@ class Kinematics:
             "\n[Train] ----- Dataset: {} progress".format(entry_total)
         )
         dataset = list(
-            cspace.torch.classes.JointStateCollection(
-                self.joint,
-                tuple(
-                    zero(name).apply(
-                        self.spec,
-                        torch.rand(1, generator=generator, dtype=torch.float64),
-                    )
-                    for index, name in enumerate(self.joint)
-                ),
+            zero.apply(
+                self.spec,
+                torch.rand(len(self.joint), generator=generator, dtype=torch.float64),
             )
             for _ in range(entry_total)
         )

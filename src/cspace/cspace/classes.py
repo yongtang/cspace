@@ -45,6 +45,10 @@ class LinkPoseCollection(abc.ABC):
     def __call__(self, name):
         raise NotImplementedError
 
+    @abc.abstractmethod
+    def delta(self, spec, other):
+        raise NotImplementedError
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class JointState(abc.ABC):
@@ -118,7 +122,7 @@ class JointState(abc.ABC):
             joint.motion.zero + joint.motion.limit,
         )
 
-        return other_value
+        return self.__class__(name=self.name, position=other_value)
 
     def transform(self, spec):
         joint = spec.joint(self.name)
@@ -208,6 +212,14 @@ class JointStateCollection(abc.ABC):
             ],
             self.identity(),
         )
+
+    @abc.abstractmethod
+    def apply(self, spec, delta):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def delta(self, spec, other):
+        raise NotImplementedError
 
     @classmethod
     @abc.abstractmethod
