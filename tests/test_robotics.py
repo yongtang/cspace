@@ -247,3 +247,10 @@ def test_spec(device, urdf_file_tutorial):
                 )
             )
             assert joint_route == spec.route(source, target)
+
+
+def test_spec(device, urdf_file_panda):
+    with pytest.raises(AssertionError, match="TODO: mimic"):
+        spec = cspace.cspace.classes.Spec(
+            description=pathlib.Path(urdf_file_panda).read_text()
+        )

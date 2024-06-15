@@ -169,10 +169,6 @@ class JointState(cspace.cspace.classes.JointState):
         return Transform(xyz=xyz, rot=rot)
 
     @classmethod
-    def angle(cls, value):
-        return (value + torch.pi) % (torch.pi * 2) - torch.pi
-
-    @classmethod
     def clip(cls, value, lower, upper):
         return torch.clip(value, min=lower, max=upper)
 

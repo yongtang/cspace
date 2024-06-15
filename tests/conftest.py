@@ -263,3 +263,11 @@ def link_pose_tutorial(urdf_file_tutorial):
         )
         for k, v in poses.items()
     }
+
+
+@pytest.fixture(scope="session")
+def urdf_file_panda(tmp_path_factory):
+    url = "https://raw.githubusercontent.com/moveit/moveit_resources/humble/panda_description/urdf/panda.urdf"
+    file = tmp_path_factory.mktemp("data") / "panda.urdf"
+    file.write_bytes(requests.get(url).content)
+    return file

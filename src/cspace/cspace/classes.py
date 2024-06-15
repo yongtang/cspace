@@ -62,7 +62,9 @@ class JointState(abc.ABC):
 
         self_value = self.position
         self_value = (
-            self.angle(self_value) if joint.motion.call == "angular" else self_value
+            self.angle(self_value, joint.motion.zero, joint.motion.limit)
+            if joint.motion.call == "angular"
+            else self_value
         )
         self_value = self.clip(
             self_value,
@@ -75,7 +77,9 @@ class JointState(abc.ABC):
 
         other_value = other.position
         other_value = (
-            self.angle(other_value) if joint.motion.call == "angular" else other_value
+            self.angle(other_value, joint.motion.zero, joint.motion.limit)
+            if joint.motion.call == "angular"
+            else other_value
         )
         other_value = self.clip(
             other_value,
@@ -99,7 +103,9 @@ class JointState(abc.ABC):
 
         self_value = self.position
         self_value = (
-            self.angle(self_value) if joint.motion.call == "angular" else self_value
+            self.angle(self_value, joint.motion.zero, joint.motion.limit)
+            if joint.motion.call == "angular"
+            else self_value
         )
         self_value = self.clip(
             self_value,
@@ -149,6 +155,10 @@ class JointState(abc.ABC):
         raise NotImplementedError
 
     @classmethod
+    def angle(cls, value, zero, limit):
+        return (value + limit) % (limit * 2.0) - limit
+
+    @classmethod
     @abc.abstractmethod
     def origin(cls, position, xyz, rpy):
         raise NotImplementedError
@@ -161,11 +171,6 @@ class JointState(abc.ABC):
     @classmethod
     @abc.abstractmethod
     def angular(cls, position, sign, axis):
-        raise NotImplementedError
-
-    @classmethod
-    @abc.abstractmethod
-    def angle(cls, value):
         raise NotImplementedError
 
     @classmethod
@@ -278,6 +283,31 @@ class Attribute:
         limit: float
 
         def __init__(self, joint, axis, lower, upper):
+
+            if joint == "fixed":
+                call = ""
+                lower, upper = 0.0, 0.0
+            elif joint == "prismatic":
+                call = "linear"
+                lower, upper = float(lower), float(upper)
+            elif joint == "revolute":
+                call = "angular"
+                lower, upper = float(lower), float(upper)
+                assert upper <= lower + math.pi * 2.0
+            elif joint == "continuous":
+                call = "angular"
+                lower, upper = -math.pi, math.pi
+            else:
+                raise NotImplementedError
+
+            assert lower <= upper
+            zero = (upper + lower) / 2.0
+            limit = (upper - lower) / 2.0
+            object.__setattr__(self, "call", call)
+            object.__setattr__(self, "zero", zero)
+            object.__setattr__(self, "limit", limit)
+
+            axis = (1, 0, 0) if joint == "fixed" else axis
             axis = tuple(int(item) for item in axis)
             assert len(axis) == 3
             sign = tuple(item for item in axis if item)
@@ -285,36 +315,8 @@ class Attribute:
             sign = next(iter(sign))
             assert (sign == 1) or (sign == -1)
             axis = axis.index(sign)
-
-            lower, upper = float(lower), float(upper)
-            assert lower <= upper
-            assert (joint != "revolute") or (-math.pi <= lower and lower <= math.pi)
-            assert (joint != "revolute") or (-math.pi <= upper and upper <= math.pi)
-
-            if joint == "fixed":
-                call = ""
-                zero = 0.0
-                limit = 0.0
-            elif joint == "prismatic":
-                call = "linear"
-                zero = (upper + lower) / 2.0
-                limit = (upper - lower) / 2.0
-            elif joint == "revolute":
-                call = "angular"
-                zero = (upper + lower) / 2.0
-                limit = (upper - lower) / 2.0
-            elif joint == "continuous":
-                call = "angular"
-                zero = 0.0
-                limit = math.pi
-            else:
-                raise NotImplementedError
-
-            object.__setattr__(self, "call", call)
             object.__setattr__(self, "sign", sign)
             object.__setattr__(self, "axis", axis)
-            object.__setattr__(self, "zero", zero)
-            object.__setattr__(self, "limit", limit)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
