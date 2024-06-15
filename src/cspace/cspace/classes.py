@@ -214,6 +214,11 @@ class JointStateCollection(abc.ABC):
     def stack(cls, collections):
         raise NotImplementedError
 
+    @classmethod
+    @abc.abstractmethod
+    def zero(cls, spec, joint, batch=None):
+        raise NotImplementedError
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Transform(abc.ABC):

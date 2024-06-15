@@ -223,6 +223,20 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
 
         return cls(name=name, position=position)
 
+    @classmethod
+    def zero(cls, spec, joint, batch=None):
+        batch = batch if batch else []
+        return cls(
+            joint,
+            torch.stack(
+                tuple(
+                    torch.tensor(spec.joint(name).motion.zero).expand(batch)
+                    for name in joint
+                ),
+                dim=-1,
+            ),
+        )
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Transform(cspace.cspace.classes.Transform):

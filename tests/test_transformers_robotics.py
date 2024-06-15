@@ -48,7 +48,7 @@ def test_kinematics(device, urdf_file, joint_state, link_pose):
 @pytest.mark.parametrize(
     "model,seed,total,epoch,batch",
     [
-        ("gpt2", 12345, 8 * 1024 * 1024, 1, 32 * 1024),
+        ("gpt2", 12345, 8 * 1024 * 1024, 5, 32 * 1024),
     ],
 )
 def test_train(

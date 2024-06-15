@@ -106,15 +106,8 @@ class Kinematics:
             delta_value = delta_value.to(torch.float64) / (self.bucket - 1)
             delta_value = torch.clip(delta_value, min=0.0, max=1.0)
 
-            zero_state = cspace.torch.classes.JointStateCollection(
-                self.joint,
-                torch.stack(
-                    tuple(
-                        torch.tensor(self.spec.joint(name).motion.zero).expand(batch)
-                        for name in self.joint
-                    ),
-                    dim=-1,
-                ),
+            zero_state = cspace.torch.classes.JointStateCollection.zero(
+                self.spec, self.joint, batch
             )
 
             return cspace.torch.classes.JointStateCollection(
@@ -137,15 +130,8 @@ class Kinematics:
         pred_value = pred_value[..., 6 * len(self.link) :, :]
         pred_value = torch.transpose(pred_value, -1, -2)
 
-        zero_state = cspace.torch.classes.JointStateCollection(
-            self.joint,
-            torch.stack(
-                tuple(
-                    torch.tensor(self.spec.joint(name).motion.zero).expand(batch)
-                    for name in self.joint
-                ),
-                dim=-1,
-            ),
+        zero_state = cspace.torch.classes.JointStateCollection.zero(
+            self.spec, self.joint, batch
         )
         true_state = cspace.torch.classes.JointStateCollection(
             self.joint,
@@ -166,16 +152,7 @@ class Kinematics:
         batch = list(pose.position.shape[:-2])
 
         zero = self.forward(
-            cspace.torch.classes.JointStateCollection(
-                self.joint,
-                torch.stack(
-                    tuple(
-                        torch.tensor(self.spec.joint(name).motion.zero).expand(batch)
-                        for name in self.joint
-                    ),
-                    dim=-1,
-                ),
-            )
+            cspace.torch.classes.JointStateCollection.zero(self.spec, self.joint, batch)
         )
         delta = torch.stack(
             tuple(zero(name).delta(self.spec, pose(name)) for name in self.link), dim=-1
@@ -202,9 +179,7 @@ class Kinematics:
 
         optimizer = torch.optim.AdamW(self.model.parameters())
 
-        zero = cspace.torch.classes.JointStateCollection(
-            self.joint, tuple(self.spec.joint(name).motion.zero for name in self.joint)
-        )
+        zero = cspace.torch.classes.JointStateCollection.zero(self.spec, self.joint)
 
         logging.getLogger(__name__).info(
             "\n[Train] ----- Dataset: {} progress".format(entry_total)
