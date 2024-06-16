@@ -8,18 +8,6 @@ import dataclasses
 import xml.dom.minidom
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class LinkPose(abc.ABC):
-    base: str
-    name: str
-    position: typing.Any
-    orientation: typing.Any
-
-    @abc.abstractmethod
-    def delta(self, spec, other):
-        raise NotImplementedError
-
-
 class LinkPoseCollection(abc.ABC):
     @property
     @abc.abstractmethod
@@ -31,22 +19,21 @@ class LinkPoseCollection(abc.ABC):
     def name(self):
         raise NotImplementedError
 
-    @property
     @abc.abstractmethod
-    def position(self):
-        raise NotImplementedError
-
-    @property
-    @abc.abstractmethod
-    def orientation(self):
+    def position(self, name):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def __call__(self, name):
+    def orientation(self, name):
         raise NotImplementedError
 
     @abc.abstractmethod
     def delta(self, spec, other):
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def batch(self):
         raise NotImplementedError
 
 

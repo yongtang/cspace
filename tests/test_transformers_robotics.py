@@ -42,10 +42,10 @@ def test_kinematics(
     )
 
     pose = kinematics.forward(state)
-    assert pose("left_gripper").position.shape == true_position.shape
-    assert torch.allclose(pose("left_gripper").position, true_position, atol=1e-4)
-    assert pose("left_gripper").orientation.shape == true_orientation.shape
-    assert torch.allclose(pose("left_gripper").orientation, true_orientation, atol=1e-4)
+    assert pose.position("left_gripper").shape == true_position.shape
+    assert torch.allclose(pose.position("left_gripper"), true_position, atol=1e-4)
+    assert pose.orientation("left_gripper").shape == true_orientation.shape
+    assert torch.allclose(pose.orientation("left_gripper"), true_orientation, atol=1e-4)
 
 
 @pytest.mark.parametrize(

@@ -1,28 +1,8 @@
 import cspace.cspace.classes
 import cspace.torch.ops
 import dataclasses
+import functools
 import torch
-
-
-class LinkPose(cspace.cspace.classes.LinkPose):
-    def delta(self, spec, other):
-        assert self.base == other.base
-        assert self.name == other.name
-        assert self.position.shape == other.position.shape
-        assert self.orientation.shape == other.orientation.shape
-        self_transform = Transform(
-            xyz=self.position, rot=cspace.torch.ops.qua_to_rot(self.orientation)
-        )
-        other_transform = Transform(
-            xyz=other.position, rot=cspace.torch.ops.qua_to_rot(other.orientation)
-        )
-
-        delta_transform = self_transform.inverse() * other_transform
-
-        delta_scale = torch.special.expit(
-            cspace.torch.ops.se3_log(delta_transform.xyz, delta_transform.rot)
-        )
-        return delta_scale
 
 
 class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
@@ -34,36 +14,56 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
         self._orientation_ = torch.as_tensor(orientation, dtype=torch.float64)
         assert len(self._name_) == self._orientation_.shape[-1]
 
+        @functools.cache
+        def f_index(self, name):
+            return self.name.index(name)
+
+        self._f_index_ = functools.partial(f_index, self)
+
     @property
     def base(self):
         return self._base_
 
     @property
-    def position(self):
-        return self._position_
-
-    @property
-    def orientation(self):
-        return self._orientation_
-
-    @property
     def name(self):
         return self._name_
 
-    def __call__(self, name):
-        index = self.name.index(name)
-        return LinkPose(
-            base=self.base,
-            name=name,
-            position=torch.select(self.position, dim=-1, index=index),
-            orientation=torch.select(self.orientation, dim=-1, index=index),
-        )
+    def position(self, name):
+        return torch.select(self._position_, dim=-1, index=self._f_index_(name))
+
+    def orientation(self, name):
+        return torch.select(self._orientation_, dim=-1, index=self._f_index_(name))
 
     def delta(self, spec, other):
+        assert self.base == other.base
         assert self.name == other.name
+        assert self._position_.shape == other._position_.shape
+        assert self._orientation_.shape == other._orientation_.shape
+
+        def f_delta(spec, name, self, other):
+            self_transform = Transform(
+                xyz=self.position(name),
+                rot=cspace.torch.ops.qua_to_rot(self.orientation(name)),
+            )
+            other_transform = Transform(
+                xyz=other.position(name),
+                rot=cspace.torch.ops.qua_to_rot(other.orientation(name)),
+            )
+
+            delta_transform = self_transform.inverse() * other_transform
+
+            delta_scale = torch.special.expit(
+                cspace.torch.ops.se3_log(delta_transform.xyz, delta_transform.rot)
+            )
+            return delta_scale
+
         return torch.stack(
-            tuple(self(name).delta(spec, other(name)) for name in self.name), dim=-1
+            tuple(f_delta(spec, name, self, other) for name in self.name), dim=-1
         )
+
+    @property
+    def batch(self):
+        return tuple(self._position_.shape[:-2])
 
 
 class JointState(cspace.cspace.classes.JointState):

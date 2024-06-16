@@ -136,16 +136,16 @@ class Kinematics:
         return self.loss_fn(pred_value, true_value)
 
     def head(self, pose):
-        batch = list(pose.position.shape[:-2])
-
         zero = self.forward(
-            cspace.torch.classes.JointStateCollection.zero(self.spec, self.joint, batch)
+            cspace.torch.classes.JointStateCollection.zero(
+                self.spec, self.joint, pose.batch
+            )
         )
         delta = zero.delta(self.spec, pose)
-        blank = torch.zeros(batch + [1, len(self.joint)])
+        blank = torch.zeros(pose.batch + (1, len(self.joint)))
 
-        delta = torch.reshape(delta, batch + [-1])
-        blank = torch.reshape(blank, batch + [-1])
+        delta = torch.reshape(delta, pose.batch + tuple([-1]))
+        blank = torch.reshape(blank, pose.batch + tuple([-1]))
 
         value = torch.concatenate((delta, blank), dim=-1)
         value = value * (self.bucket - 1)
