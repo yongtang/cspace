@@ -220,6 +220,22 @@ class Attribute:
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
+class Mimic:
+    joint: str
+    offset: float
+    multiplier: float
+
+    def __post_init__(self):
+        assert self.joint
+
+        offset = float(self.offset) if self.offset else 0.0
+        multiplier = float(self.multiplier) if self.multiplier else 1.0
+
+        object.__setattr__(self, "offset", offset)
+        object.__setattr__(self, "multiplier", multiplier)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class Joint(abc.ABC):
     name: str
     child: str
@@ -229,14 +245,6 @@ class Joint(abc.ABC):
 
     def __post_init__(self):
         pass
-
-    @property
-    def length(self):
-        return math.sqrt(
-            self.origin.xyz[0] * self.origin.xyz[0]
-            + self.origin.xyz[1] * self.origin.xyz[1]
-            + self.origin.xyz[2] * self.origin.xyz[2]
-        ) + (self.motion.limit * 2.0 if self.motion.call != "angular" else 0.0)
 
 
 class JointCollection(tuple):
@@ -344,10 +352,22 @@ class Spec:
                 f_attribute(e, "type"), xyz.split(" "), lower, upper
             )
 
-        def f_mimic(e):
+        def f_mimic(e, joint):
             entries = e.getElementsByTagName("mimic")
-            assert entries.length == 0, "TODO: mimic"
-            return None
+            assert entries.length == 0 or entries.length == 1
+            if entries.length == 0:
+                return None
+            assert (
+                joint(f_attribute(e, "name")).motion.call
+                and joint(f_attribute(e, "name")).motion.call
+                == joint(entries.item(0).getAttribute("joint")).motion.call
+            )
+
+            return Mimic(
+                joint=entries.item(0).getAttribute("joint"),
+                offset=entries.item(0).getAttribute("offset"),
+                multiplier=entries.item(0).getAttribute("multiplier"),
+            )
 
         def f_joint(e):
             name = f_attribute(e, "name")
@@ -355,7 +375,6 @@ class Spec:
             parent = f_attribute(f_element(e, "parent"), "link")
             origin = f_origin(e)
             motion = f_motion(e)
-            mimic = f_mimic(e)
             return Joint(
                 name=name,
                 child=child,
@@ -392,8 +411,17 @@ class Spec:
             chain = ChainCollection([Chain(f_chain(e, joint)) for e in sorted(link)])
             assert len({next(iter(e)) for e in chain}) == 1
 
+            mimic = {
+                name: entry
+                for name, entry in map(
+                    lambda e: (f_attribute(e, "name"), f_mimic(e, joint)),
+                    dom.getElementsByTagName("joint"),
+                )
+                if entry
+            }
             object.__setattr__(self, "joint", joint)
             object.__setattr__(self, "chain", chain)
+            object.__setattr__(self, "mimic", mimic)
 
     @functools.cache
     def route(self, source, target=None):

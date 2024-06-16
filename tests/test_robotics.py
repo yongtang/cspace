@@ -252,7 +252,11 @@ def test_spec(device, urdf_file_tutorial):
 
 
 def test_spec(device, urdf_file_panda):
-    with pytest.raises(AssertionError, match="TODO: mimic"):
-        spec = cspace.cspace.classes.Spec(
-            description=pathlib.Path(urdf_file_panda).read_text()
+    spec = cspace.cspace.classes.Spec(
+        description=pathlib.Path(urdf_file_panda).read_text()
+    )
+    assert spec.mimic == {
+        "panda_finger_joint2": cspace.cspace.classes.Mimic(
+            joint="panda_finger_joint1", offset=0.0, multiplier=1.0
         )
+    }
