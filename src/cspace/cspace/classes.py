@@ -37,152 +37,18 @@ class LinkPoseCollection(abc.ABC):
         raise NotImplementedError
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class JointState(abc.ABC):
-    name: str
-    position: typing.Any
-
-    def delta(self, spec, other):
-        assert self.name == other.name
-
-        joint = spec.joint(self.name)
-
-        self_value = self.position
-        self_value = (
-            self.angle(self_value, joint.motion.zero, joint.motion.limit)
-            if joint.motion.call == "angular"
-            else self_value
-        )
-        self_value = self.clip(
-            self_value,
-            joint.motion.zero - joint.motion.limit,
-            joint.motion.zero + joint.motion.limit,
-        )
-        self_scale = (self_value - (joint.motion.zero - joint.motion.limit)) / (
-            joint.motion.limit * 2.0
-        )
-
-        other_value = other.position
-        other_value = (
-            self.angle(other_value, joint.motion.zero, joint.motion.limit)
-            if joint.motion.call == "angular"
-            else other_value
-        )
-        other_value = self.clip(
-            other_value,
-            joint.motion.zero - joint.motion.limit,
-            joint.motion.zero + joint.motion.limit,
-        )
-        other_scale = (other_value - (joint.motion.zero - joint.motion.limit)) / (
-            joint.motion.limit * 2.0
-        )
-
-        delta_scale = (other_scale - self_scale + 1.0) % 1.0
-
-        delta_scale = self.clip(delta_scale, 0.0, 1.0)
-
-        return delta_scale
-
-    def apply(self, spec, delta):
-        joint = spec.joint(self.name)
-
-        delta_scale = self.clip(delta, 0.0, 1.0)
-
-        self_value = self.position
-        self_value = (
-            self.angle(self_value, joint.motion.zero, joint.motion.limit)
-            if joint.motion.call == "angular"
-            else self_value
-        )
-        self_value = self.clip(
-            self_value,
-            joint.motion.zero - joint.motion.limit,
-            joint.motion.zero + joint.motion.limit,
-        )
-        self_scale = (self_value - (joint.motion.zero - joint.motion.limit)) / (
-            joint.motion.limit * 2.0
-        )
-
-        other_scale = (self_scale + delta_scale + 1.0) % 1.0
-
-        other_value = other_scale * (joint.motion.limit * 2.0) + (
-            joint.motion.zero - joint.motion.limit
-        )
-
-        other_value = self.clip(
-            other_value,
-            joint.motion.zero - joint.motion.limit,
-            joint.motion.zero + joint.motion.limit,
-        )
-
-        return self.__class__(name=self.name, position=other_value)
-
-    def transform(self, spec):
-        joint = spec.joint(self.name)
-
-        origin = self.origin(
-            self.position,
-            joint.origin.xyz,
-            joint.origin.rpy,
-        )
-        if joint.motion.call == "":
-            return origin
-        elif joint.motion.call == "linear":
-            return origin * self.linear(
-                self.position,
-                joint.motion.sign,
-                joint.motion.axis,
-            )
-        elif joint.motion.call == "angular":
-            return origin * self.angular(
-                self.position,
-                joint.motion.sign,
-                joint.motion.axis,
-            )
-        raise NotImplementedError
-
-    @classmethod
-    def angle(cls, value, zero, limit):
-        return (value + limit) % (limit * 2.0) - limit
-
-    @classmethod
-    @abc.abstractmethod
-    def origin(cls, position, xyz, rpy):
-        raise NotImplementedError
-
-    @classmethod
-    @abc.abstractmethod
-    def linear(cls, position, sign, axis):
-        raise NotImplementedError
-
-    @classmethod
-    @abc.abstractmethod
-    def angular(cls, position, sign, axis):
-        raise NotImplementedError
-
-    @classmethod
-    @abc.abstractmethod
-    def clip(cls, value, lower, upper):
-        raise NotImplementedError
-
-
 class JointStateCollection(abc.ABC):
     @property
     @abc.abstractmethod
     def name(self):
         raise NotImplementedError
 
-    @property
     @abc.abstractmethod
-    def position(self):
+    def position(self, name):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def __call__(self, name):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def identity(self):
+    def identity(self, name):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -190,9 +56,32 @@ class JointStateCollection(abc.ABC):
         raise NotImplementedError
 
     def transform(self, spec, link, base):
+
+        def f_joint(spec, name):
+            joint = spec.joint(name)
+            origin = self.origin(
+                self.position(name),
+                joint.origin.xyz,
+                joint.origin.rpy,
+            )
+            if joint.motion.call == "":
+                return origin
+            elif joint.motion.call == "linear":
+                return origin * self.linear(
+                    self.position(name),
+                    joint.motion.sign,
+                    joint.motion.axis,
+                )
+            elif joint.motion.call == "angular":
+                return origin * self.angular(
+                    self.position(name),
+                    joint.motion.sign,
+                    joint.motion.axis,
+                )
+            raise NotImplementedError
+
         def f_transform(spec, name, forward):
-            state = self.__call__(name)
-            e_transform = state.transform(spec)
+            e_transform = f_joint(spec, name)
             e_transform = e_transform if forward else e_transform.inverse()
             return e_transform
 
@@ -213,6 +102,16 @@ class JointStateCollection(abc.ABC):
     def delta(self, spec, other):
         raise NotImplementedError
 
+    @property
+    @abc.abstractmethod
+    def batch(self):
+        raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def zero(cls, spec, joint, batch=None):
+        raise NotImplementedError
+
     @classmethod
     @abc.abstractmethod
     def stack(cls, collections):
@@ -220,8 +119,22 @@ class JointStateCollection(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def zero(cls, spec, joint, batch=None):
+    def origin(cls, position, xyz, rpy):
         raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def linear(cls, position, sign, axis):
+        raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def angular(cls, position, sign, axis):
+        raise NotImplementedError
+
+    @classmethod
+    def angle(cls, value, zero, limit):
+        return (value + limit) % (limit * 2.0) - limit
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

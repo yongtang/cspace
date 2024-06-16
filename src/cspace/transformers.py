@@ -112,9 +112,7 @@ class Kinematics:
             return zero.apply(self.spec, delta_value)
 
     def loss(self, pred, true):
-        batch = {pred.shape[:-1], true.position.shape[:-1]}
-        assert len(batch) == 1
-        batch = next(iter(batch))
+        assert true.batch == pred.shape[:-1]
 
         pred_value = torch.unflatten(pred, -1, (-1, self.bucket))
         assert pred_value.shape[-2:] == torch.Size(
@@ -124,11 +122,11 @@ class Kinematics:
         pred_value = torch.transpose(pred_value, -1, -2)
 
         zero_state = cspace.torch.classes.JointStateCollection.zero(
-            self.spec, self.joint, batch
+            self.spec, self.joint, true.batch
         )
         true_state = cspace.torch.classes.JointStateCollection(
             self.joint,
-            torch.stack(tuple(true(name).position for name in self.joint), dim=-1),
+            torch.stack(tuple(true.position(name) for name in self.joint), dim=-1),
         )
         true_delta = zero_state.delta(self.spec, true_state)
         true_value = true_delta * (self.bucket - 1)
@@ -181,7 +179,10 @@ class Kinematics:
         )
         dataset = list(
             cspace.torch.classes.JointStateCollection(
-                name=data.name, position=data.position[index]
+                name=data.name,
+                position=torch.stack(
+                    tuple(data.position(name)[index] for name in data.name), dim=-1
+                ),
             )
             for index in range(entry_total)
         )

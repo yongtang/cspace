@@ -160,6 +160,18 @@ def test_spec(device, urdf_file_tutorial):
         description=pathlib.Path(urdf_file_tutorial).read_text()
     )
 
+    state = cspace.torch.classes.JointStateCollection(
+        name=(
+            "base_to_right_leg",
+            "right_front_wheel_joint",
+            "left_gripper_joint",
+            "gripper_extension",
+        ),
+        position=torch.tensor(
+            [1.0, 1.0, 1.0, -1.0], device=device, dtype=torch.float64
+        ),
+    )
+
     joint = spec.joint("base_to_right_leg")
 
     xyz = torch.tensor(joint.origin.xyz, device=device, dtype=torch.float64)
@@ -170,11 +182,7 @@ def test_spec(device, urdf_file_tutorial):
         dtype=torch.float64,
     )
 
-    state = cspace.torch.classes.JointState(
-        name=joint.name, position=torch.tensor(1.0, device=device, dtype=torch.float64)
-    )
-
-    transform = state.transform(spec)
+    transform = state.transform(spec, joint.child, joint.parent)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -191,11 +199,7 @@ def test_spec(device, urdf_file_tutorial):
         dtype=torch.float64,
     )
 
-    state = cspace.torch.classes.JointState(
-        name=joint.name, position=torch.tensor(1.0, device=device, dtype=torch.float64)
-    )
-
-    transform = state.transform(spec)
+    transform = state.transform(spec, joint.child, joint.parent)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -212,11 +216,7 @@ def test_spec(device, urdf_file_tutorial):
         dtype=torch.float64,
     )
 
-    state = cspace.torch.classes.JointState(
-        name=joint.name, position=torch.tensor(1.0, device=device, dtype=torch.float64)
-    )
-
-    transform = state.transform(spec)
+    transform = state.transform(spec, joint.child, joint.parent)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
@@ -235,11 +235,7 @@ def test_spec(device, urdf_file_tutorial):
         dtype=torch.float64,
     )
 
-    state = cspace.torch.classes.JointState(
-        name=joint.name, position=torch.tensor(-1.0, device=device, dtype=torch.float64)
-    )
-
-    transform = state.transform(spec)
+    transform = state.transform(spec, joint.child, joint.parent)
 
     assert torch.allclose(transform.xyz, xyz, atol=1e-4)
     assert torch.allclose(transform.rpy, rpy, atol=1e-4)
