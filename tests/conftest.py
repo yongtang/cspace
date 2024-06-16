@@ -13,10 +13,10 @@ import torch
 
 def pytest_addoption(parser):
     parser.addoption(
-        "--train",
+        "--quick",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="run tests for training",
+        default=False,
+        help="run quick tests",
     )
     parser.addoption(
         "--device", action="store", default="cpu,cuda", help="run tests with CUDA"
@@ -24,11 +24,11 @@ def pytest_addoption(parser):
 
 
 def pytest_collection_modifyitems(config, items):
-    if config.getoption("--train"):
+    if not config.getoption("--quick"):
         return
     for item in items:
-        if "train" in item.keywords:
-            item.add_marker(pytest.mark.skip(reason="--no-train"))
+        if "full" in item.keywords:
+            item.add_marker(pytest.mark.skip(reason="--quick"))
 
 
 def pytest_generate_tests(metafunc):

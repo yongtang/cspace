@@ -48,11 +48,13 @@ def test_kinematics(
     assert torch.allclose(pose("left_gripper").orientation, true_orientation, atol=1e-4)
 
 
-@pytest.mark.train
 @pytest.mark.parametrize(
     "model,seed,total,epoch,batch",
     [
-        ("gpt2", 12345, 8 * 1024 * 1024, 5, 32 * 1024),
+        pytest.param(
+            "gpt2", 12345, 8 * 1024 * 1024, 5, 32 * 1024, marks=pytest.mark.full
+        ),
+        pytest.param("gpt2", 12345, 8, 5, 2),
     ],
 )
 def test_train(
