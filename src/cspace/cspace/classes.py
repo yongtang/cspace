@@ -28,7 +28,7 @@ class LinkPoseCollection(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def delta(self, spec, other):
+    def delta(self, other):
         raise NotImplementedError
 
     @property
@@ -44,11 +44,7 @@ class JointStateCollection(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def position(self, name):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def identity(self, name):
+    def position(self, spec, name):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -56,11 +52,10 @@ class JointStateCollection(abc.ABC):
         raise NotImplementedError
 
     def transform(self, spec, link, base):
-
         def f_joint(spec, name):
             joint = spec.joint(name)
             origin = self.origin(
-                self.position(name),
+                self.position(spec, name),
                 joint.origin.xyz,
                 joint.origin.rpy,
             )
@@ -68,13 +63,13 @@ class JointStateCollection(abc.ABC):
                 return origin
             elif joint.motion.call == "linear":
                 return origin * self.linear(
-                    self.position(name),
+                    self.position(spec, name),
                     joint.motion.sign,
                     joint.motion.axis,
                 )
             elif joint.motion.call == "angular":
                 return origin * self.angular(
-                    self.position(name),
+                    self.position(spec, name),
                     joint.motion.sign,
                     joint.motion.axis,
                 )
@@ -115,6 +110,11 @@ class JointStateCollection(abc.ABC):
     @classmethod
     @abc.abstractmethod
     def stack(cls, collections):
+        raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def identity(cls):
         raise NotImplementedError
 
     @classmethod

@@ -68,7 +68,11 @@ class Kinematics:
 
         joint = list([e for e, _ in spec.route(e, base)] for e in link)
         joint = list(set(itertools.chain.from_iterable(joint)))
-        joint = tuple(e for e in sorted(joint) if spec.joint(e).motion.call)
+        joint = tuple(
+            e
+            for e in sorted(joint)
+            if (spec.joint(e).motion.call and e not in spec.mimic)
+        )
 
         self.spec = spec
         self.base = base
@@ -126,7 +130,9 @@ class Kinematics:
         )
         true_state = cspace.torch.classes.JointStateCollection(
             self.joint,
-            torch.stack(tuple(true.position(name) for name in self.joint), dim=-1),
+            torch.stack(
+                tuple(true.position(self.spec, name) for name in self.joint), dim=-1
+            ),
         )
         true_delta = zero_state.delta(self.spec, true_state)
         true_value = true_delta * (self.bucket - 1)
@@ -139,7 +145,7 @@ class Kinematics:
                 self.spec, self.joint, pose.batch
             )
         )
-        delta = zero.delta(self.spec, pose)
+        delta = zero.delta(pose)
         blank = torch.zeros(pose.batch + (1, len(self.joint)))
 
         delta = torch.reshape(delta, pose.batch + tuple([-1]))
@@ -181,7 +187,8 @@ class Kinematics:
             cspace.torch.classes.JointStateCollection(
                 name=data.name,
                 position=torch.stack(
-                    tuple(data.position(name)[index] for name in data.name), dim=-1
+                    tuple(data.position(self.spec, name)[index] for name in data.name),
+                    dim=-1,
                 ),
             )
             for index in range(entry_total)

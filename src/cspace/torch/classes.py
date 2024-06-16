@@ -34,13 +34,13 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
     def orientation(self, name):
         return torch.select(self._orientation_, dim=-1, index=self._f_index_(name))
 
-    def delta(self, spec, other):
+    def delta(self, other):
         assert self.base == other.base
         assert self.name == other.name
         assert self._position_.shape == other._position_.shape
         assert self._orientation_.shape == other._orientation_.shape
 
-        def f_delta(spec, name, self, other):
+        def f_delta(name, self, other):
             self_transform = Transform(
                 xyz=self.position(name),
                 rot=cspace.torch.ops.qua_to_rot(self.orientation(name)),
@@ -58,7 +58,7 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
             return delta_scale
 
         return torch.stack(
-            tuple(f_delta(spec, name, self, other) for name in self.name), dim=-1
+            tuple(f_delta(name, self, other) for name in self.name), dim=-1
         )
 
     @property
@@ -72,37 +72,25 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         self._position_ = torch.as_tensor(position, dtype=torch.float64)
         assert len(self._name_) == self._position_.shape[-1]
 
-        @functools.cache
-        def f_index(self, name):
-            if name not in self.name:
-                return -1
-            return self.name.index(name)
-
-        self._f_index_ = functools.partial(f_index, self)
-
     @property
     def name(self):
         return self._name_
 
-    def position(self, name):
-        index = self._f_index_(name)
-        if index < 0:  # TODO: mimic
+    def position(self, spec, name):
+        @functools.cache
+        def f_index(self, name):
+            return self.name.index(name)
+
+        if not spec.joint(name).motion.call:  # fixed
             return torch.empty(
                 self._position_.shape[:-1],
                 device=self._position_.device,
                 dtype=self._position_.dtype,
             )
-        return torch.select(self._position_, dim=-1, index=index)
-
-    def identity(self):
-        xyz = torch.as_tensor(
-            [0, 0, 0], device=self._position_.device, dtype=self._position_.dtype
-        )
-        rot = rot = torch.eye(
-            3, device=self._position_.device, dtype=self._position_.dtype
-        )
-
-        return Transform(xyz=xyz, rot=rot)
+        mimic = spec.mimic.get(name, None)
+        index = f_index(self, mimic.joint if mimic else name)
+        value = torch.select(self._position_, dim=-1, index=index)
+        return (value * mimic.multiplier + mimic.offset) if mimic else value
 
     def forward(self, spec, *link, base=None):
         base = base if base else spec.base
@@ -153,7 +141,7 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
             tuple(
                 f_apply(
                     spec.joint(name),
-                    self.position(name),
+                    self.position(spec, name),
                     torch.select(delta, dim=-1, index=index),
                 )
                 for index, name in enumerate(self.name)
@@ -168,7 +156,7 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         def f_delta(spec, name, self, other):
             joint = spec.joint(name)
 
-            self_value = self.position(name)
+            self_value = self.position(spec, name)
             self_value = (
                 self.angle(self_value, joint.motion.zero, joint.motion.limit)
                 if joint.motion.call == "angular"
@@ -183,7 +171,7 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
                 joint.motion.limit * 2.0
             )
 
-            other_value = other.position(name)
+            other_value = other.position(spec, name)
             other_value = (
                 self.angle(other_value, joint.motion.zero, joint.motion.limit)
                 if joint.motion.call == "angular"
@@ -238,6 +226,12 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         )
 
         return cls(name=name, position=position)
+
+    @classmethod
+    def identity(cls):
+        xyz = torch.zeros(3, dtype=torch.float64)
+        rot = torch.eye(3, device=xyz.device, dtype=xyz.dtype)
+        return Transform(xyz=xyz, rot=rot)
 
     @classmethod
     def origin(cls, position, xyz, rpy):
