@@ -1,5 +1,3 @@
-import pytest
-
 import cspace.cspace.classes
 
 import pathlib

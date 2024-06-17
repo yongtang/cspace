@@ -145,7 +145,7 @@ class Kinematics:
                 self.spec, self.joint, pose.batch
             )
         )
-        delta = zero.delta(pose)
+        delta = zero.delta(self.spec, pose)
         blank = torch.zeros(pose.batch + (1, len(self.joint)))
 
         delta = torch.reshape(delta, pose.batch + tuple([-1]))

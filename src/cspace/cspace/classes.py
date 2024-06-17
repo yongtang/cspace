@@ -9,15 +9,17 @@ import xml.dom.minidom
 
 
 class LinkPoseCollection(abc.ABC):
-    @property
-    @abc.abstractmethod
-    def base(self):
-        raise NotImplementedError
+    def __init__(self, base, name):
+        self._base_ = base
+        self._name_ = tuple(name)
 
     @property
-    @abc.abstractmethod
+    def base(self):
+        return self._base_
+
+    @property
     def name(self):
-        raise NotImplementedError
+        return self._name_
 
     @abc.abstractmethod
     def position(self, name):
@@ -28,20 +30,52 @@ class LinkPoseCollection(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def delta(self, other):
+    def transform(self, name):
         raise NotImplementedError
+
+    def delta(self, spec, other):
+        assert self.base == other.base
+        assert self.name == other.name
+
+        def f_joint(joint):
+            return math.sqrt(
+                joint.origin.xyz[0] * joint.origin.xyz[0]
+                + joint.origin.xyz[1] * joint.origin.xyz[1]
+                + joint.origin.xyz[2] * joint.origin.xyz[2]
+            ) + (joint.motion.limit * 2.0 if joint.motion.call != "angular" else 0.0)
+
+        def f_delta(spec, name, self, other):
+            limit = sum(map(f_joint, spec.joint))
+
+            transform = self.transform(name).inverse() * other.transform(name)
+
+            return self.scale(transform.log, limit)
+
+        return self.stack(tuple(f_delta(spec, name, self, other) for name in self.name))
 
     @property
     @abc.abstractmethod
     def batch(self):
         raise NotImplementedError
 
+    @classmethod
+    @abc.abstractmethod
+    def stack(cls, value):
+        raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def scale(cls, value, limit):
+        raise NotImplementedError
+
 
 class JointStateCollection(abc.ABC):
+    def __init__(self, name):
+        self._name_ = tuple(name)
+
     @property
-    @abc.abstractmethod
     def name(self):
-        raise NotImplementedError
+        return self._name_
 
     @abc.abstractmethod
     def position(self, spec, name):
@@ -143,11 +177,18 @@ class Transform(abc.ABC):
     rot: typing.Any
 
     @property
+    @abc.abstractmethod
     def rpy(self):
         raise NotImplementedError
 
     @property
+    @abc.abstractmethod
     def qua(self):
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def log(self):
         raise NotImplementedError
 
     @abc.abstractmethod
