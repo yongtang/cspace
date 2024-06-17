@@ -6,6 +6,22 @@ import logging
 import torch
 
 
+class Dataset(torch.utils.data.Dataset):
+    def __init__(self, data):
+        assert isinstance(data, cspace.torch.classes.JointStateCollection)
+        assert len(data.batch) == 1
+        self._data_ = data
+
+    def __len__(self):
+        return self._data_.batch[0]
+
+    def __getitem__(self, key):
+        return cspace.torch.classes.JointStateCollection(
+            name=self._data_.name,
+            position=torch.select(self._data_._position_, dim=0, index=key),
+        )
+
+
 class Model(torch.nn.Module):
     def __init__(self, transformer):
         super().__init__()
@@ -159,48 +175,43 @@ class Kinematics:
         encoded = torch.unsqueeze(encoded, -2)
         return encoded
 
+    def rand(self, total, seed=None):
+        generator = torch.Generator().manual_seed(seed)
+        zero = cspace.torch.classes.JointStateCollection.zero(
+            self.spec, self.joint, batch=[total]
+        )
+        data = zero.apply(
+            self.spec,
+            torch.rand(
+                total, len(self.joint), generator=generator, dtype=torch.float64
+            ),
+        )
+        return data
+
     def train(self, total=None, epoch=None, batch=None, device=None, seed=None):
         entry_total = total if total else 1024
         epoch_total = epoch if epoch else 1
         batch_size = batch if batch else 128
 
-        generator = torch.Generator().manual_seed(seed)
-
         optimizer = torch.optim.AdamW(self.model.parameters())
 
         logging.getLogger(__name__).info(
-            "[Train] ----- Dataset: {} - creation".format(entry_total)
-        )
-        zero = cspace.torch.classes.JointStateCollection.zero(
-            self.spec, self.joint, batch=[entry_total]
-        )
-        data = zero.apply(
-            self.spec,
-            torch.rand(
-                entry_total, len(self.joint), generator=generator, dtype=torch.float64
-            ),
-        )
-        logging.getLogger(__name__).info(
-            "[Train] ----- Dataset: {} - progress".format(entry_total)
-        )
-        dataset = list(
-            cspace.torch.classes.JointStateCollection(
-                name=data.name,
-                position=torch.stack(
-                    tuple(data.position(self.spec, name)[index] for name in data.name),
-                    dim=-1,
-                ),
+            "[Train] ----- Dataset: {} (batch={}, seed={}) - creation".format(
+                entry_total, batch_size, seed
             )
-            for index in range(entry_total)
-        )
-        logging.getLogger(__name__).info(
-            "[Train] ----- Dataset: {} - complete".format(entry_total)
         )
 
+        dataset = Dataset(self.rand(entry_total, seed))
         loader = torch.utils.data.DataLoader(
             dataset,
             batch_size=batch_size,
             collate_fn=cspace.torch.classes.JointStateCollection.stack,
+        )
+
+        logging.getLogger(__name__).info(
+            "[Train] ----- Dataset: {} (batch={}, seed={}) - complete".format(
+                entry_total, batch_size, seed
+            )
         )
 
         self.model.train()
