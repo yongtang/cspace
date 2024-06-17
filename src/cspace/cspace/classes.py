@@ -363,10 +363,39 @@ class Spec:
                 == joint(entries.item(0).getAttribute("joint")).motion.call
             )
 
+            offset = entries.item(0).getAttribute("offset")
+            multiplier = entries.item(0).getAttribute("multiplier")
+
+            offset = float(offset) if offset else 0.0
+            multiplier = float(multiplier) if multiplier else 1.0
+
+            lower = (
+                joint(entries.item(0).getAttribute("joint")).motion.zero
+                - joint(entries.item(0).getAttribute("joint")).motion.limit
+            )
+            upper = (
+                joint(entries.item(0).getAttribute("joint")).motion.zero
+                + joint(entries.item(0).getAttribute("joint")).motion.limit
+            )
+
+            lower = lower * multiplier + offset
+            upper = upper * multiplier + offset
+
+            lower, upper = (lower, upper) if (lower < upper) else (upper, lower)
+
+            assert lower >= (
+                joint(f_attribute(e, "name")).motion.zero
+                - joint(f_attribute(e, "name")).motion.limit
+            )
+            assert upper <= (
+                joint(f_attribute(e, "name")).motion.zero
+                + joint(f_attribute(e, "name")).motion.limit
+            )
+
             return Mimic(
                 joint=entries.item(0).getAttribute("joint"),
-                offset=entries.item(0).getAttribute("offset"),
-                multiplier=entries.item(0).getAttribute("multiplier"),
+                offset=offset,
+                multiplier=multiplier,
             )
 
         def f_joint(e):
