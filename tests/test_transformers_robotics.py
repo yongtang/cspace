@@ -49,12 +49,13 @@ def test_kinematics(
 
 
 @pytest.mark.parametrize(
-    "model,seed,total,epoch,batch",
+    "model,seed,total,batch,noise,epoch",
     [
         pytest.param(
-            "gpt2", 12345, 8 * 1024 * 1024, 5, 32 * 1024, marks=pytest.mark.full
+            "gpt2", 12345, 1 * 1024 * 1024, 32 * 1024, 8, 5, marks=pytest.mark.full
         ),
-        pytest.param("gpt2", 12345, 8, 5, 2),
+        pytest.param("gpt2", 12345, 8, 2, 2, 5),
+        pytest.param("gpt2", 12345, 8, 2, None, 5),
     ],
 )
 def test_train(
@@ -66,12 +67,15 @@ def test_train(
     seed,
     total,
     batch,
+    noise,
     epoch,
 ):
     kinematics = cspace.transformers.Kinematics(
         pathlib.Path(urdf_file_tutorial).read_text(), "left_gripper", model=model
     )
-    kinematics.train(seed=seed, total=total, batch=batch, epoch=epoch, device=device)
+    kinematics.train(
+        seed=seed, total=total, batch=batch, noise=noise, epoch=epoch, device=device
+    )
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
