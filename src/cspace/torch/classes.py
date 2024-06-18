@@ -41,7 +41,24 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
 
     @classmethod
     def scale(cls, value, limit):
-        return torch.special.expit(value)
+        assert value.shape[-1] == 6
+
+        linear = value[..., :3]
+        angular = value[..., 3:]
+
+        # assert torch.all(-limit <= linear) and torch.all(linear <= limit)
+        # linear = torch.clip(linear, min=-limit, max=limit)
+        # linear = (linear + limit) / (limit * 2.0)
+        linear = torch.special.expit(linear)
+
+        angular = (angular + torch.pi) % (torch.pi * 2.0) - torch.pi
+        angular = torch.clip(angular, min=-torch.pi, max=torch.pi)
+        angular = (angular + torch.pi) / (torch.pi * 2.0)
+
+        value = torch.concatenate((linear, angular), dim=-1)
+        value = torch.clip(value, min=0.0, max=1.0)
+
+        return value
 
 
 class JointStateCollection(cspace.cspace.classes.JointStateCollection):
