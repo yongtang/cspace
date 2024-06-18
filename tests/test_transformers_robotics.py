@@ -52,7 +52,7 @@ def test_kinematics(
     "model,seed,total,batch,noise,epoch",
     [
         pytest.param(
-            "gpt2", 12345, 1 * 1024 * 1024, 32 * 1024, 8, 5, marks=pytest.mark.full
+            "gpt2", 12345, 8 * 1024 * 1024, 32 * 1024, 2, 5, marks=pytest.mark.full
         ),
         pytest.param("gpt2", 12345, 8, 2, 2, 5),
         pytest.param("gpt2", 12345, 8, 2, None, 5),
@@ -104,7 +104,18 @@ def test_train(
 
     inverse = kinematics.inverse(pose)
     logging.getLogger(__name__).info(
-        ("\n[Inverse Kinematics]" + "\nPred: {}" + "\nTrue: {}\n").format(
+        (
+            "\n"
+            + "[Inverse Kinematics]\n"
+            + "\n"
+            + "Pose: [position]    {}\n"
+            + "      [orientation] {}\n"
+            + "\n"
+            + "Pred: {}\n"
+            + "True: {}\n"
+        ).format(
+            list((name, pose.position(name)) for name in pose.name),
+            list((name, pose.orientation(name)) for name in pose.name),
             list(
                 (name, inverse.position(kinematics.spec, name)) for name in inverse.name
             ),

@@ -216,7 +216,7 @@ class Kinematics:
         encoded = torch.unsqueeze(encoded, -2)
         return encoded
 
-    def rand(self, total, noise, seed=None):
+    def rand(self, total, noise, seed=None, std=0.01):
         generator = torch.Generator().manual_seed(seed)
         zero = cspace.torch.classes.JointStateCollection.zero(
             self.spec, self.joint, batch=[total]
@@ -232,7 +232,7 @@ class Kinematics:
         if noise:
             linear_shape = [noise] + list(pose.batch) + [3, len(pose.name)]
 
-            linear_std = torch.ones(linear_shape, dtype=torch.float64) * 0.1
+            linear_std = torch.ones(linear_shape, dtype=torch.float64) * std
             linear_mean = torch.zeros(linear_shape, dtype=torch.float64)
 
             linear_noise = torch.normal(linear_mean, linear_std, generator=generator)
@@ -244,7 +244,7 @@ class Kinematics:
 
             angular_shape = [noise] + list(pose.batch) + [3, len(pose.name)]
 
-            angular_std = torch.ones(angular_shape, dtype=torch.float64) * 0.1
+            angular_std = torch.ones(angular_shape, dtype=torch.float64) * std
             angular_mean = torch.zeros(angular_shape, dtype=torch.float64)
 
             angular_noise = torch.normal(angular_mean, angular_std, generator=generator)
