@@ -3,6 +3,8 @@ name = "cspace"
 version = "0.0.0"
 requires-python = ">=3.10"
 license = {file = "LICENSE.txt"}
+[project.scripts]
+"cspace.tool" = "cspace.tool:main"
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"

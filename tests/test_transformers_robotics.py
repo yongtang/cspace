@@ -69,6 +69,8 @@ def test_train(
     batch,
     noise,
     epoch,
+    request,
+    tmp_path_factory,
 ):
     kinematics = cspace.transformers.Kinematics(
         pathlib.Path(urdf_file_tutorial).read_text(), "left_gripper", model=model
@@ -76,6 +78,20 @@ def test_train(
     kinematics.train(
         seed=seed, total=total, batch=batch, noise=noise, epoch=epoch, device=device
     )
+
+    saved = tmp_path_factory.mktemp("model") / "{}-{}.pth".format(
+        request.node.name, request.node.callspec.id
+    )
+
+    torch.save(kinematics.model.state_dict(), saved)
+    logging.getLogger(__name__).info(f"Model save {saved}")
+
+    kinematics = cspace.transformers.Kinematics(
+        pathlib.Path(urdf_file_tutorial).read_text(), "left_gripper", model=model
+    )
+    checkpoint = torch.load(saved)
+    kinematics.model.load_state_dict(checkpoint)
+    logging.getLogger(__name__).info(f"Model load {saved}")
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
