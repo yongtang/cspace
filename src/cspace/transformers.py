@@ -37,7 +37,7 @@ class Dataset(torch.utils.data.Dataset):
     def collate_fn(cls, entries):
         pose, state = list(zip(*entries))
 
-        info = set((e.base, e.name) for e in pose)
+        info = {(e.base, e.name) for e in pose}
         assert len(info) == 1
         base, name = next(iter(info))
         position = torch.stack(tuple(e._position_ for e in pose), dim=0)
@@ -50,7 +50,7 @@ class Dataset(torch.utils.data.Dataset):
             orientation=orientation,
         )
 
-        info = set(e.name for e in state)
+        info = {e.name for e in state}
         assert len(info) == 1
         name = next(iter(info))
         position = torch.stack(tuple(e._position_ for e in state), dim=0)

@@ -191,7 +191,7 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
 
     @classmethod
     def stack(cls, collections):
-        name = set(collection.name for collection in collections)
+        name = {collection.name for collection in collections}
         assert len(name) == 1
         name = next(iter(name))
 
@@ -315,10 +315,10 @@ class Transform(cspace.cspace.classes.Transform):
         xyz = torch.as_tensor(self.xyz)
         rot = torch.as_tensor(self.rot, dtype=xyz.dtype)
         batch = {xyz.shape[:-1], rot.shape[:-2]}
-        assert len(batch) == 1, "{} vs. {}".format(xyz.shape, rot.shape)
+        assert len(batch) == 1, f"{xyz.shape} vs. {rot.shape}"
         assert xyz.shape[-1:] == torch.Size([3]) and rot.shape[-2:] == torch.Size(
             [3, 3]
-        ), "{} vs. {}".format(xyz.shape, rot.shape)
+        ), f"{xyz.shape} vs. {rot.shape}"
         object.__setattr__(self, "xyz", xyz)
         object.__setattr__(self, "rot", rot)
 
