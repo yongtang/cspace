@@ -467,7 +467,11 @@ class Spec:
 
         with xml.dom.minidom.parseString(self.description) as dom:
             joint = JointCollection(
-                tuple(f_joint(e) for e in dom.getElementsByTagName("joint"))
+                tuple(
+                    f_joint(e)
+                    for e in dom.getElementsByTagName("joint")
+                    if e.parentNode == dom.documentElement
+                )
             )
             assert len(joint) == dom.getElementsByTagName("joint").length
 
