@@ -46,10 +46,9 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
         linear = value[..., :3]
         angular = value[..., 3:]
 
-        # assert torch.all(-limit <= linear) and torch.all(linear <= limit)
-        # linear = torch.clip(linear, min=-limit, max=limit)
-        # linear = (linear + limit) / (limit * 2.0)
-        linear = torch.special.expit(linear)
+        assert torch.all(-limit <= linear) and torch.all(linear <= limit)
+        linear = torch.clip(linear, min=-limit, max=limit)
+        linear = (linear + limit) / (limit * 2.0)
 
         angular = (angular + torch.pi) % (torch.pi * 2.0) - torch.pi
         angular = torch.clip(angular, min=-torch.pi, max=torch.pi)
