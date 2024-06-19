@@ -1,8 +1,8 @@
 import cspace.cspace.classes
 import cspace.torch.classes
 import transformers
+import accelerate
 import itertools
-import logging
 import torch
 
 
@@ -88,8 +88,8 @@ class Model(torch.nn.Module):
 
         data = (
             torch.nn.utils.rnn.pad_sequence(data, batch_first=True)
-            .to(self.embedding.weight.device)
             .to(self.embedding.weight.dtype)
+            .to(self.embedding.weight.device)
         )
         mask = torch.nn.utils.rnn.pad_sequence(mask, batch_first=True).to(
             self.embedding.weight.device
@@ -103,7 +103,7 @@ class Model(torch.nn.Module):
             [data[i, j] for i, j in enumerate(torch.count_nonzero(mask, dim=1) - 1)]
         )
 
-        data = torch.mm(data, self.embedding.weight).cpu()
+        data = torch.mm(data, self.embedding.weight)  # .cpu()
         return data
 
 
@@ -191,7 +191,7 @@ class Kinematics:
                 tuple(true.position(self.spec, name) for name in self.joint), dim=-1
             ),
         )
-        true_delta = zero_state.delta(self.spec, true_state)
+        true_delta = zero_state.delta(self.spec, true_state).to(pred_value.device)
         true_value = true_delta * (self.bucket - 1)
         true_value = torch.clip(true_value.to(torch.int64), min=0, max=self.bucket - 1)
         return self.loss_fn(pred_value, true_value)
@@ -280,15 +280,32 @@ class Kinematics:
         return pose, state
 
     def train(
-        self, total=None, epoch=None, batch=None, noise=None, device=None, seed=None
+        self,
+        total=None,
+        epoch=None,
+        batch=None,
+        noise=None,
+        seed=None,
+        load=None,
+        save=None,
     ):
         entry_total = total if total else 1024
         epoch_total = epoch if epoch else 1
         batch_size = batch if batch else 128
 
         optimizer = torch.optim.AdamW(self.model.parameters())
+        scheduler = torch.optim.lr_scheduler.ChainedScheduler(
+            [
+                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9),
+                torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                    optimizer, T_0=5, T_mult=2
+                ),
+            ]
+        )
 
-        logging.getLogger(__name__).info(
+        accelerator = accelerate.Accelerator()
+
+        accelerate.logging.get_logger(__name__).info(
             "[Train] ----- Dataset: {} (entry={}, noise={}, batch={}, seed={}) - creation".format(
                 entry_total * (noise if noise else 1),
                 entry_total,
@@ -299,32 +316,45 @@ class Kinematics:
         )
 
         dataset = Dataset(*self.rand(total=entry_total, noise=noise, seed=seed))
-        loader = torch.utils.data.DataLoader(
+        dataloader = torch.utils.data.DataLoader(
             dataset,
             batch_size=batch_size,
             collate_fn=Dataset.collate_fn,
+            shuffle=True,
         )
 
-        logging.getLogger(__name__).info(
+        # forward pass to initialize parameters
+        pose, _ = Dataset.collate_fn([dataset[0]])
+        self.model(self.head(pose))
+
+        accelerate.logging.get_logger(__name__).info(
             "[Train] ----- Dataset: {} (entry={}, noise={}, batch={}, seed={}) - complete".format(
                 len(dataset), entry_total, (noise if noise else 1), batch_size, seed
             )
         )
 
-        self.model.train()
-        self.model.to(device)
+        dataloader, model, optimizer, scheduler = accelerator.prepare(
+            dataloader, self.model, optimizer, scheduler
+        )
+
+        accelerator.load_state(load) if load else None
+
+        model.train()
         for epoch in range(epoch_total):
             total, count = 0, 0
-            for batch, (pose, true) in enumerate(loader):
+            for batch, (pose, true) in enumerate(dataloader):
                 data = self.head(pose)
-                pred = self.model(data)
+                pred = model(data)
                 loss = self.loss(pred, true)
-                loss.backward()
+                accelerator.backward(loss)
                 optimizer.step()
+                scheduler.step()
                 optimizer.zero_grad()
+                loss = accelerator.gather_for_metrics(loss)
+                pred = accelerator.gather_for_metrics(pred)
+                total += loss.sum().item()
                 count += len(pred)
-                total += loss.item()
-                logging.getLogger(__name__).info(
+                accelerate.logging.get_logger(__name__).info(
                     "[Train] ----- Epoch {} [{}/{}] - Loss: {} [/Train]".format(
                         epoch,
                         count,
@@ -332,3 +362,4 @@ class Kinematics:
                         total / count,
                     )
                 )
+            accelerator.save_state(save) if save else None

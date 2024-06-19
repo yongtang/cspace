@@ -4,7 +4,8 @@ version = "0.0.0"
 requires-python = ">=3.10"
 license = {file = "LICENSE.txt"}
 [project.scripts]
-"cspace.tool" = "cspace.tool:main"
+"cspace.tool.torchrun" = "cspace.tool.torchrun:main"
+"cspace.tool.kinematics" = "cspace.tool.kinematics:main"
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
