@@ -5,6 +5,7 @@ import cspace.transformers
 import pathlib
 import logging
 import torch
+import accelerate
 
 
 def test_kinematics(
@@ -72,26 +73,33 @@ def test_train(
     request,
     tmp_path_factory,
 ):
+    saved = pathlib.Path.joinpath(
+        tmp_path_factory.mktemp("model"),
+        "{}-{}.pth".format(request.node.name, request.node.callspec.id),
+    )
+
     kinematics = cspace.transformers.Kinematics(
         pathlib.Path(urdf_file_tutorial).read_text(), "left_gripper", model=model
     )
     kinematics.train(
-        seed=seed, total=total, batch=batch, noise=noise, epoch=epoch, device=device
+        seed=seed, total=total, batch=batch, noise=noise, epoch=epoch, save=saved
     )
-
-    saved = tmp_path_factory.mktemp("model") / "{}-{}.pth".format(
-        request.node.name, request.node.callspec.id
-    )
-
-    torch.save(kinematics.model.state_dict(), saved)
     logging.getLogger(__name__).info(f"Model save {saved}")
 
     kinematics = cspace.transformers.Kinematics(
         pathlib.Path(urdf_file_tutorial).read_text(), "left_gripper", model=model
     )
-    checkpoint = torch.load(saved)
-    kinematics.model.load_state_dict(checkpoint)
-    logging.getLogger(__name__).info(f"Model load {saved}")
+    # initialize parameters
+    kinematics.inverse(
+        kinematics.forward(
+            cspace.torch.classes.JointStateCollection.zero(
+                kinematics.spec, kinematics.joint
+            )
+        )
+    )
+    kinematics.model = accelerate.load_checkpoint_and_dispatch(
+        kinematics.model, checkpoint=saved
+    )
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
