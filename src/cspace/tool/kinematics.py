@@ -19,23 +19,23 @@ def main():
 
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     logging.getLogger(__name__).info(f"Args: {args}")
 
     kinematics = cspace.transformers.Kinematics(
         pathlib.Path(args.urdf).read_text(), *args.link, model="gpt2"
     )
+    kinematics.model = accelerate.load_checkpoint_and_dispatch(
+        kinematics.model, checkpoint=args.load
+    )
 
     joint, position = zip(*tuple(e.split(":", maxsplit=1) for e in args.joint))
     joint, position = tuple(joint), tuple(float(e) for e in position)
     state = cspace.torch.classes.JointStateCollection(joint, position)
-
-    # initialize parameters
-    kinematics.inverse(kinematics.forward(state))
-
-    kinematics.model = accelerate.load_checkpoint_and_dispatch(
-        kinematics.model, checkpoint=args.load
-    )
 
     pose = kinematics.forward(state)
 

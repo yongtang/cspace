@@ -68,7 +68,7 @@ class Model(torch.nn.Module):
         super().__init__()
         self.embedding = torch.nn.LazyLinear(
             transformer.get_input_embeddings().embedding_dim,
-            device=transformer.get_input_embeddings().weight.device,
+            #   device=transformer.get_input_embeddings().weight.device,
             dtype=transformer.get_input_embeddings().weight.dtype,
             bias=False,
         )
@@ -81,19 +81,18 @@ class Model(torch.nn.Module):
         self.transformer = transformer
 
     def forward(self, batch):
-        entries = [entry for entry in batch]
-
-        data = entries
-        mask = list(map(lambda e: torch.ones(len(e)), data))
-
-        data = (
-            torch.nn.utils.rnn.pad_sequence(data, batch_first=True)
-            .to(self.embedding.weight.dtype)
-            .to(self.embedding.weight.device)
+        data = list(
+            map(
+                lambda e: e.to(self.embedding.weight.dtype).to(
+                    self.embedding.weight.device
+                ),
+                batch,
+            )
         )
-        mask = torch.nn.utils.rnn.pad_sequence(mask, batch_first=True).to(
-            self.embedding.weight.device
-        )
+        mask = list(map(lambda e: torch.ones(len(e), device=e.device), data))
+
+        data = torch.nn.utils.rnn.pad_sequence(data, batch_first=True)
+        mask = torch.nn.utils.rnn.pad_sequence(mask, batch_first=True)
         data = self.transformer(
             inputs_embeds=self.embedding(data),
             attention_mask=mask,
@@ -103,7 +102,7 @@ class Model(torch.nn.Module):
             [data[i, j] for i, j in enumerate(torch.count_nonzero(mask, dim=1) - 1)]
         )
 
-        data = torch.mm(data, self.embedding.weight)  # .cpu()
+        data = torch.mm(data, self.embedding.weight)
         return data
 
 
@@ -135,11 +134,19 @@ class Kinematics:
         self.base = base
         self.link = link
         self.joint = joint
-        self.model = (
-            Model(transformer=transformers.AutoModelForCausalLM.from_pretrained(model))
-            if model
-            else None
-        )
+
+        if model:
+            self.model = Model(
+                transformer=transformers.AutoModelForCausalLM.from_pretrained(model)
+            )
+            # initialize parameters
+            self.inverse(
+                self.forward(
+                    cspace.torch.classes.JointStateCollection.zero(
+                        self.spec, self.joint
+                    )
+                )
+            )
 
     def forward(self, state):
         return state.forward(self.spec, *self.link, base=self.base)
@@ -191,7 +198,8 @@ class Kinematics:
                 tuple(true.position(self.spec, name) for name in self.joint), dim=-1
             ),
         )
-        true_delta = zero_state.delta(self.spec, true_state).to(pred_value.device)
+        true_delta = zero_state.delta(self.spec, true_state)
+        true_delta = true_delta.to(pred_value.device)
         true_value = true_delta * (self.bucket - 1)
         true_value = torch.clip(true_value.to(torch.int64), min=0, max=self.bucket - 1)
         return self.loss_fn(pred_value, true_value)
@@ -286,7 +294,6 @@ class Kinematics:
         batch=None,
         noise=None,
         seed=None,
-        load=None,
         save=None,
     ):
         entry_total = total if total else 1024
@@ -323,10 +330,6 @@ class Kinematics:
             shuffle=True,
         )
 
-        # forward pass to initialize parameters
-        pose, _ = Dataset.collate_fn([dataset[0]])
-        self.model(self.head(pose))
-
         accelerate.logging.get_logger(__name__).info(
             "[Train] ----- Dataset: {} (entry={}, noise={}, batch={}, seed={}) - complete".format(
                 len(dataset), entry_total, (noise if noise else 1), batch_size, seed
@@ -336,8 +339,6 @@ class Kinematics:
         dataloader, model, optimizer, scheduler = accelerator.prepare(
             dataloader, self.model, optimizer, scheduler
         )
-
-        accelerator.load_state(load) if load else None
 
         model.train()
         for epoch in range(epoch_total):

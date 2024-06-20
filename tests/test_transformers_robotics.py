@@ -75,7 +75,7 @@ def test_train(
 ):
     saved = pathlib.Path.joinpath(
         tmp_path_factory.mktemp("model"),
-        "{}-{}.pth".format(request.node.name, request.node.callspec.id),
+        f"{request.node.name}-{request.node.callspec.id}.pth",
     )
 
     kinematics = cspace.transformers.Kinematics(
@@ -88,14 +88,6 @@ def test_train(
 
     kinematics = cspace.transformers.Kinematics(
         pathlib.Path(urdf_file_tutorial).read_text(), "left_gripper", model=model
-    )
-    # initialize parameters
-    kinematics.inverse(
-        kinematics.forward(
-            cspace.torch.classes.JointStateCollection.zero(
-                kinematics.spec, kinematics.joint
-            )
-        )
     )
     kinematics.model = accelerate.load_checkpoint_and_dispatch(
         kinematics.model, checkpoint=saved

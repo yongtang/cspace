@@ -37,11 +37,20 @@ def main():
 
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     logging.getLogger(__name__).info(f"Args: {args}")
 
     kinematics = cspace.transformers.Kinematics(
         pathlib.Path(args.urdf).read_text(), *args.link, model="gpt2"
+    )
+    kinematics.model = (
+        accelerate.load_checkpoint_and_dispatch(kinematics.model, checkpoint=args.load)
+        if args.load
+        else kinematics.model
     )
 
     kinematics.train(
@@ -50,7 +59,6 @@ def main():
         batch=args.batch,
         noise=args.noise,
         epoch=args.epoch,
-        load=args.load,
         save=args.save,
     )
 
