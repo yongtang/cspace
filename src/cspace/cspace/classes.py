@@ -473,7 +473,13 @@ class Spec:
                     if e.parentNode == dom.documentElement
                 )
             )
-            assert len(joint) == dom.getElementsByTagName("joint").length
+            assert len(joint) == len(
+                list(
+                    e
+                    for e in dom.getElementsByTagName("joint")
+                    if e.parentNode == dom.documentElement
+                )
+            )
 
             link = {f_attribute(e, "name") for e in dom.getElementsByTagName("link")}
             assert len(link) == dom.getElementsByTagName("link").length
