@@ -22,3 +22,5 @@ jobs:
       - run: python --version
       - run: python -m pip install -e .[test]
       - run: python -m pytest -s -v tests/ --device cpu --quick
+      - run: python -m autoflake --check .
+      - run: python -m black --check .
