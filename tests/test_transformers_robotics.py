@@ -19,7 +19,11 @@ def test_kinematics(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
     )
     state = cspace.torch.classes.JointStateCollection(
-        kinematics.joint, tuple(joint_state_tutorial[name] for name in kinematics.joint)
+        kinematics.joint,
+        torch.tensor(
+            tuple(joint_state_tutorial[name] for name in kinematics.joint),
+            device=device,
+        ),
     )
 
     true_position = torch.tensor(

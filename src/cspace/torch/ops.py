@@ -260,6 +260,8 @@ def se3_mul(xyz_a, rot_a, xyz_b, rot_b):
     xyz_b = torch.reshape(xyz_b, [-1, 3])
     rot_b = torch.reshape(rot_b, [-1, 3, 3])
 
+    rot_a = rot_a.to(rot_b.device)
+    xyz_a = xyz_a.to(xyz_b.device)
     xyz = torch.bmm(rot_a, xyz_b.unsqueeze(-1)).squeeze(-1) + xyz_a
     rot = torch.bmm(rot_a, rot_b)
 
