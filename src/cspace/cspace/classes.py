@@ -38,11 +38,12 @@ class LinkPoseCollection(abc.ABC):
         assert self.name == other.name
 
         def f_joint(joint):
-            return math.sqrt(
+            limit = math.sqrt(
                 joint.origin.xyz[0] * joint.origin.xyz[0]
                 + joint.origin.xyz[1] * joint.origin.xyz[1]
                 + joint.origin.xyz[2] * joint.origin.xyz[2]
-            ) + (joint.motion.limit * 2.0 if joint.motion.call != "angular" else 0.0)
+            ) + (joint.motion.limit if joint.motion.call != "angular" else 0.0)
+            return limit * 2.0  # 2.0: + or -
 
         def f_delta(spec, name, self, other):
             limit = sum(map(f_joint, spec.joint))
