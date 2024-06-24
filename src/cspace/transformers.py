@@ -2,7 +2,6 @@ import cspace.cspace.classes
 import cspace.torch.classes
 import transformers
 import accelerate
-import itertools
 import torch
 
 
@@ -106,35 +105,12 @@ class Model(torch.nn.Module):
         return data
 
 
-class Kinematics:
-    spec: cspace.cspace.classes.Spec
-    base: str
-    link: tuple[str]
-    joint: tuple[str]
-    model: torch.nn.Module
+class Kinematics(cspace.torch.classes.Kinematics):
     bucket: int = 1000
     loss_fn = torch.nn.CrossEntropyLoss()
 
     def __init__(self, description, *link, base=None, model=None):
-        spec = cspace.cspace.classes.Spec(description=description)
-        assert (not base) or (base in spec.link)
-        base = str(base) if base else spec.base
-        assert (not link) or all([(item in spec.link) for item in link])
-        link = tuple(link) if link else spec.link
-
-        joint = list([e for e, _ in spec.route(e, base)] for e in link)
-        joint = list(set(itertools.chain.from_iterable(joint)))
-        joint = tuple(
-            e
-            for e in sorted(joint)
-            if (spec.joint(e).motion.call and e not in spec.mimic)
-        )
-
-        self.spec = spec
-        self.base = base
-        self.link = link
-        self.joint = joint
-
+        super().__init__(description, *link, base=base, model=model)
         if model:
             self.model = Model(
                 transformer=transformers.AutoModelForCausalLM.from_pretrained(model)
@@ -147,9 +123,6 @@ class Kinematics:
                     )
                 )
             )
-
-    def forward(self, state):
-        return state.forward(self.spec, *self.link, base=self.base)
 
     def inverse(self, pose):
 

@@ -361,3 +361,11 @@ class Transform(cspace.cspace.classes.Transform):
     def __mul__(self, other):
         xyz, rot = cspace.torch.ops.se3_mul(self.xyz, self.rot, other.xyz, other.rot)
         return Transform(xyz=xyz, rot=rot)
+
+
+class Kinematics(cspace.cspace.classes.Kinematics):
+    model: torch.nn.Module
+
+    def __init__(self, description, *link, base=None, model=None):
+        super().__init__(description, *link, base=base)
+        self.model = model

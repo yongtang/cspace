@@ -551,3 +551,33 @@ class Spec:
         base = base if base else self.base
         link = link if len(link) else self.link
         return state.forward(self, *link, base=base)
+
+
+class Kinematics:
+    spec: Spec
+    base: str
+    link: tuple[str]
+    joint: tuple[str]
+
+    def __init__(self, description, *link, base=None):
+        spec = Spec(description=description)
+        assert (not base) or (base in spec.link)
+        base = str(base) if base else spec.base
+        assert (not link) or all([(item in spec.link) for item in link])
+        link = tuple(link) if link else spec.link
+
+        joint = list([e for e, _ in spec.route(e, base)] for e in link)
+        joint = list(set(itertools.chain.from_iterable(joint)))
+        joint = tuple(
+            e
+            for e in sorted(joint)
+            if (spec.joint(e).motion.call and e not in spec.mimic)
+        )
+
+        self.spec = spec
+        self.base = base
+        self.link = link
+        self.joint = joint
+
+    def forward(self, state):
+        return state.forward(self.spec, *self.link, base=self.base)
