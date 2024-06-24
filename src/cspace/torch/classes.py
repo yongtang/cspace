@@ -363,6 +363,63 @@ class Transform(cspace.cspace.classes.Transform):
         return Transform(xyz=xyz, rot=rot)
 
 
+class Dataset(torch.utils.data.Dataset):
+    def __init__(self, pose, state):
+        assert isinstance(pose, cspace.torch.classes.LinkPoseCollection)
+        assert len(pose.batch) == 1
+        assert isinstance(state, cspace.torch.classes.JointStateCollection)
+        assert len(state.batch) == 1
+        assert pose.batch == state.batch
+
+        self._pose_ = pose
+        self._state_ = state
+
+    def __len__(self):
+        return self._pose_.batch[0]
+
+    def __getitem__(self, key):
+        pose = cspace.torch.classes.LinkPoseCollection(
+            base=self._pose_.base,
+            name=self._pose_.name,
+            position=torch.select(self._pose_._position_, dim=0, index=key),
+            orientation=torch.select(self._pose_._orientation_, dim=0, index=key),
+        )
+        state = cspace.torch.classes.JointStateCollection(
+            name=self._state_.name,
+            position=torch.select(self._state_._position_, dim=0, index=key),
+        )
+        return pose, state
+
+    @classmethod
+    def collate_fn(cls, entries):
+        pose, state = list(zip(*entries))
+
+        info = {(e.base, e.name) for e in pose}
+        assert len(info) == 1
+        base, name = next(iter(info))
+        position = torch.stack(tuple(e._position_ for e in pose), dim=0)
+        orientation = torch.stack(tuple(e._orientation_ for e in pose), dim=0)
+
+        pose = cspace.torch.classes.LinkPoseCollection(
+            base=base,
+            name=name,
+            position=position,
+            orientation=orientation,
+        )
+
+        info = {e.name for e in state}
+        assert len(info) == 1
+        name = next(iter(info))
+        position = torch.stack(tuple(e._position_ for e in state), dim=0)
+
+        state = cspace.torch.classes.JointStateCollection(
+            name=name,
+            position=position,
+        )
+
+        return pose, state
+
+
 class Kinematics(cspace.cspace.classes.Kinematics):
     model: torch.nn.Module
 
