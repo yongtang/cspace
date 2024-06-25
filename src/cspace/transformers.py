@@ -22,13 +22,18 @@ class Model(torch.nn.Module):
             param.requires_grad = False
         self.transformer = transformer
 
-    def forward(self, batch):
+    def forward(self, data):
+
+        batch = list(data.shape[:-2])
+
+        data = torch.reshape(data, [-1] + list(data.shape[-2:]))
+
         data = list(
             map(
                 lambda e: e.to(self.embedding.weight.dtype).to(
                     self.embedding.weight.device
                 ),
-                batch,
+                data,
             )
         )
         mask = list(map(lambda e: torch.ones(len(e), device=e.device), data))
@@ -45,6 +50,9 @@ class Model(torch.nn.Module):
         )
 
         data = torch.mm(data, self.embedding.weight)
+
+        data = torch.reshape(data, batch + list(data.shape[-1:]))
+
         return data
 
 
@@ -72,13 +80,9 @@ class Kinematics(cspace.torch.classes.Kinematics):
         with torch.no_grad():
             data = self.head(pose)
 
-            batch = list(data.shape[:-2])
-
-            data = torch.reshape(data, [-1] + list(data.shape[-2:]))
-
             pred = self.model(data)
 
-            pred = torch.reshape(pred, batch + list(pred.shape[-1:]))
+            batch = pred.shape[:-1]
 
             encoded = torch.unflatten(pred, -1, (-1, self.bucket))
             assert encoded.shape[-2:] == torch.Size(
