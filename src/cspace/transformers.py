@@ -75,29 +75,45 @@ class Kinematics(cspace.torch.classes.Kinematics):
                 )
             )
 
-    def inverse(self, pose):
-
-        with torch.no_grad():
-            data = self.head(pose)
-
-            pred = self.model(data)
-
-            batch = pred.shape[:-1]
-
-            encoded = torch.unflatten(pred, -1, (-1, self.bucket))
-            assert encoded.shape[-2:] == torch.Size(
-                [6 * len(self.link) + 1 * len(self.joint), self.bucket]
+    def encode(self, pose):
+        zero = self.forward(
+            cspace.torch.classes.JointStateCollection.zero(
+                self.spec, self.joint, pose.batch
             )
-            encoded = encoded[..., 6 * len(self.link) :, :]
+        )
+        delta = zero.delta(self.spec, pose)
+        blank = torch.zeros(pose.batch + (1, len(self.joint)))
 
-            delta_value = torch.argmax(encoded, dim=-1)
-            delta_value = delta_value.to(torch.float64) / (self.bucket - 1)
-            delta_value = torch.clip(delta_value, min=0.0, max=1.0)
+        delta = torch.reshape(delta, pose.batch + tuple([-1]))
+        blank = torch.reshape(blank, pose.batch + tuple([-1]))
 
-            zero = cspace.torch.classes.JointStateCollection.zero(
-                self.spec, self.joint, batch
-            )
-            return zero.apply(self.spec, delta_value)
+        value = torch.concatenate((delta, blank), dim=-1)
+        value = value * (self.bucket - 1)
+        value = torch.clip(value.to(torch.int64), min=0, max=self.bucket - 1)
+        encoded = torch.nn.functional.one_hot(value, self.bucket)
+        encoded = torch.flatten(encoded, -2, -1)
+        encoded = torch.unsqueeze(encoded, -2)
+        return encoded
+
+    def decode(self, pred):
+        batch = pred.shape[:-1]
+
+        encoded = torch.unflatten(pred, -1, (-1, self.bucket))
+        assert encoded.shape[-2:] == torch.Size(
+            [6 * len(self.link) + 1 * len(self.joint), self.bucket]
+        )
+        encoded = encoded[..., 6 * len(self.link) :, :]
+
+        delta_value = torch.argmax(encoded, dim=-1)
+        delta_value = delta_value.to(torch.float64) / (self.bucket - 1)
+        delta_value = torch.clip(delta_value, min=0.0, max=1.0)
+
+        zero = cspace.torch.classes.JointStateCollection.zero(
+            self.spec, self.joint, batch
+        )
+        state = zero.apply(self.spec, delta_value)
+
+        return state
 
     def loss(self, pred, true):
         assert true.batch == pred.shape[:-1]
@@ -123,26 +139,6 @@ class Kinematics(cspace.torch.classes.Kinematics):
         true_value = true_delta * (self.bucket - 1)
         true_value = torch.clip(true_value.to(torch.int64), min=0, max=self.bucket - 1)
         return self.loss_fn(pred_value, true_value)
-
-    def head(self, pose):
-        zero = self.forward(
-            cspace.torch.classes.JointStateCollection.zero(
-                self.spec, self.joint, pose.batch
-            )
-        )
-        delta = zero.delta(self.spec, pose)
-        blank = torch.zeros(pose.batch + (1, len(self.joint)))
-
-        delta = torch.reshape(delta, pose.batch + tuple([-1]))
-        blank = torch.reshape(blank, pose.batch + tuple([-1]))
-
-        value = torch.concatenate((delta, blank), dim=-1)
-        value = value * (self.bucket - 1)
-        value = torch.clip(value.to(torch.int64), min=0, max=self.bucket - 1)
-        encoded = torch.nn.functional.one_hot(value, self.bucket)
-        encoded = torch.flatten(encoded, -2, -1)
-        encoded = torch.unsqueeze(encoded, -2)
-        return encoded
 
     def rand(self, total, noise, seed=None, std=0.01):
         generator = torch.Generator().manual_seed(seed)
@@ -266,7 +262,7 @@ class Kinematics(cspace.torch.classes.Kinematics):
         for epoch in range(epoch_total):
             total, count = 0, 0
             for batch, (pose, true) in enumerate(dataloader):
-                data = self.head(pose)
+                data = self.encode(pose)
                 pred = model(data)
                 loss = self.loss(pred, true)
                 accelerator.backward(loss)

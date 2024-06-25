@@ -426,3 +426,19 @@ class Kinematics(cspace.cspace.classes.Kinematics):
     def __init__(self, description, *link, base=None, model=None):
         super().__init__(description, *link, base=base)
         self.model = model
+
+    def inverse(self, pose):
+        with torch.no_grad():
+            data = self.encode(pose)
+
+            pred = self.model(data)
+
+            state = self.decode(pred)
+
+            return state
+
+    def encode(self, pose):
+        raise NotImplementedError
+
+    def decode(self, pred):
+        raise NotImplementedError
