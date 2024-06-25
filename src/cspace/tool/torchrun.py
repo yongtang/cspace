@@ -20,15 +20,10 @@ def main():
             sys.exit(torch.distributed.run.main())
 
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--urdf",
-        dest="urdf",
-        type=str,
-        required=True,
-    )
+    parser.add_argument("--urdf", dest="urdf", type=str, default=None)
+    parser.add_argument("--link", dest="link", type=str, nargs="+", default=[])
     parser.add_argument("--load", dest="load", type=str, default=None)
     parser.add_argument("--save", dest="save", type=str, default=None)
-    parser.add_argument("--link", dest="link", type=str, nargs="+", required=True)
     parser.add_argument("--seed", dest="seed", type=int, default=0)
     parser.add_argument("--total", dest="total", type=int, default=1024)
     parser.add_argument("--batch", dest="batch", type=int, default=16)
@@ -37,6 +32,10 @@ def main():
 
     args = parser.parse_args()
 
+    assert ((args.load) and (not args.urdf and not args.link)) or (
+        (not args.load) and (args.urdf and args.link)
+    )
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)",
@@ -44,13 +43,12 @@ def main():
     )
     logging.getLogger(__name__).info(f"Args: {args}")
 
-    kinematics = cspace.transformers.Kinematics(
-        pathlib.Path(args.urdf).read_text(), *args.link, model="gpt2"
-    )
-    kinematics.model = (
-        accelerate.load_checkpoint_and_dispatch(kinematics.model, checkpoint=args.load)
+    kinematics = (
+        cspace.transformers.Kinematics.load(args.load)
         if args.load
-        else kinematics.model
+        else cspace.transformers.Kinematics(
+            pathlib.Path(args.urdf).read_text(), *args.link, model="gpt2"
+        )
     )
 
     kinematics.train(

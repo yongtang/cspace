@@ -581,3 +581,6 @@ class Kinematics:
 
     def forward(self, state):
         return state.forward(self.spec, *self.link, base=self.base)
+
+    def inverse(self, pose):
+        raise NotImplementedError

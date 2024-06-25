@@ -6,32 +6,21 @@ import torch
 
 
 class Model(torch.nn.Module):
-    def __init__(self, transformer):
+    def __init__(self, transformer, input_embeddings, output_embeddings):
         super().__init__()
-        self.embedding = torch.nn.LazyLinear(
-            transformer.get_input_embeddings().embedding_dim,
-            #   device=transformer.get_input_embeddings().weight.device,
-            dtype=transformer.get_input_embeddings().weight.dtype,
-            bias=False,
-        )
-        transformer.get_input_embeddings().reset_parameters()
-        for param in transformer.get_input_embeddings().parameters():
-            param.requires_grad = False
-        transformer.get_output_embeddings().reset_parameters()
-        for param in transformer.get_output_embeddings().parameters():
-            param.requires_grad = False
         self.transformer = transformer
+        self.input_embeddings = input_embeddings
+        self.output_embeddings = output_embeddings
 
     def forward(self, data):
-
         batch = list(data.shape[:-2])
 
         data = torch.reshape(data, [-1] + list(data.shape[-2:]))
 
         data = list(
             map(
-                lambda e: e.to(self.embedding.weight.dtype).to(
-                    self.embedding.weight.device
+                lambda e: e.to(self.input_embeddings.weight.dtype).to(
+                    self.input_embeddings.weight.device
                 ),
                 data,
             )
@@ -41,7 +30,7 @@ class Model(torch.nn.Module):
         data = torch.nn.utils.rnn.pad_sequence(data, batch_first=True)
         mask = torch.nn.utils.rnn.pad_sequence(mask, batch_first=True)
         data = self.transformer(
-            inputs_embeds=self.embedding(data),
+            inputs_embeds=self.input_embeddings(data),
             attention_mask=mask,
             output_hidden_states=True,
         ).hidden_states[-1]
@@ -49,7 +38,7 @@ class Model(torch.nn.Module):
             [data[i, j] for i, j in enumerate(torch.count_nonzero(mask, dim=1) - 1)]
         )
 
-        data = torch.mm(data, self.embedding.weight)
+        data = self.output_embeddings(data)
 
         data = torch.reshape(data, batch + list(data.shape[-1:]))
 
@@ -57,23 +46,34 @@ class Model(torch.nn.Module):
 
 
 class Kinematics(cspace.torch.classes.Kinematics):
-    bucket: int = 1000
+    bucket = 1000
     loss_fn = torch.nn.CrossEntropyLoss()
 
     def __init__(self, description, *link, base=None, model=None):
         super().__init__(description, *link, base=base, model=model)
         if model:
-            self.model = Model(
-                transformer=transformers.AutoModelForCausalLM.from_pretrained(model)
+            transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
+
+            for param in transformer.get_input_embeddings().parameters():
+                param.requires_grad = False
+            transformer.get_output_embeddings().reset_parameters()
+            for param in transformer.get_output_embeddings().parameters():
+                param.requires_grad = False
+
+            input_embeddings = torch.nn.Linear(
+                (6 * len(self.link) + 1 * len(self.joint)) * self.bucket,
+                transformer.get_input_embeddings().embedding_dim,
+                dtype=transformer.get_input_embeddings().weight.dtype,
+                bias=False,
             )
-            # initialize parameters
-            self.inverse(
-                self.forward(
-                    cspace.torch.classes.JointStateCollection.zero(
-                        self.spec, self.joint
-                    )
-                )
+            output_embeddings = torch.nn.Linear(
+                transformer.get_input_embeddings().embedding_dim,
+                (6 * len(self.link) + 1 * len(self.joint)) * self.bucket,
+                dtype=transformer.get_output_embeddings().weight.dtype,
+                bias=False,
             )
+
+            self.model = Model(transformer, input_embeddings, output_embeddings)
 
     def encode(self, pose):
         zero = self.forward(
@@ -115,142 +115,13 @@ class Kinematics(cspace.torch.classes.Kinematics):
 
         return state
 
-    def loss(self, pred, true):
-        assert true.batch == pred.shape[:-1]
-
-        pred_value = torch.unflatten(pred, -1, (-1, self.bucket))
-        assert pred_value.shape[-2:] == torch.Size(
-            [6 * len(self.link) + 1 * len(self.joint), self.bucket]
-        )
-        pred_value = pred_value[..., 6 * len(self.link) :, :]
-        pred_value = torch.transpose(pred_value, -1, -2)
-
-        zero_state = cspace.torch.classes.JointStateCollection.zero(
-            self.spec, self.joint, true.batch
-        )
-        true_state = cspace.torch.classes.JointStateCollection(
-            self.joint,
-            torch.stack(
-                tuple(true.position(self.spec, name) for name in self.joint), dim=-1
-            ),
-        )
-        true_delta = zero_state.delta(self.spec, true_state)
-        true_delta = true_delta.to(pred_value.device)
-        true_value = true_delta * (self.bucket - 1)
-        true_value = torch.clip(true_value.to(torch.int64), min=0, max=self.bucket - 1)
-        return self.loss_fn(pred_value, true_value)
-
-    def rand(self, total, noise, seed=None, std=0.01):
-        generator = torch.Generator().manual_seed(seed)
-        zero = cspace.torch.classes.JointStateCollection.zero(
-            self.spec, self.joint, batch=[total]
-        )
-        state = zero.apply(
-            self.spec,
-            torch.rand(
-                total, len(self.joint), generator=generator, dtype=torch.float64
-            ),
-        )
-        pose = self.forward(state)
-
-        if noise:
-            linear_shape = [noise] + list(pose.batch) + [3, len(pose.name)]
-
-            linear_std = torch.ones(linear_shape, dtype=torch.float64) * std
-            linear_mean = torch.zeros(linear_shape, dtype=torch.float64)
-
-            linear_noise = torch.normal(linear_mean, linear_std, generator=generator)
-
-            position = pose._position_
-            linear = position.expand(*linear_shape)
-            linear = linear + linear_noise
-            position = linear
-
-            angular_shape = [noise] + list(pose.batch) + [3, len(pose.name)]
-
-            angular_std = torch.ones(angular_shape, dtype=torch.float64) * std
-            angular_mean = torch.zeros(angular_shape, dtype=torch.float64)
-
-            angular_noise = torch.normal(angular_mean, angular_std, generator=generator)
-
-            orientation = pose._orientation_
-            angular = torch.transpose(
-                cspace.torch.ops.qua_to_rpy(torch.transpose(orientation, -2, -1)),
-                -2,
-                -1,
-            )
-            angular = angular + angular_noise
-            orientation = torch.transpose(
-                cspace.torch.ops.rpy_to_qua(torch.transpose(angular, -2, -1)), -2, -1
-            )
-
-            pose = cspace.torch.classes.LinkPoseCollection(
-                base=pose.base,
-                name=pose.name,
-                position=torch.flatten(position, 0, 1),
-                orientation=torch.flatten(orientation, 0, 1),
-            )
-
-            shape = [noise] + list(state.batch) + [len(state.name)]
-
-            position = state._position_
-            position = position.expand(*shape)
-
-            state = cspace.torch.classes.JointStateCollection(
-                name=state.name,
-                position=torch.flatten(position, 0, 1),
-            )
-
-        return pose, state
-
-    def train(
-        self,
-        total=None,
-        epoch=None,
-        batch=None,
-        noise=None,
-        seed=None,
-        save=None,
-    ):
-        entry_total = total if total else 1024
-        epoch_total = epoch if epoch else 1
-        batch_size = batch if batch else 128
-
-        optimizer = torch.optim.AdamW(self.model.parameters())
-        scheduler = torch.optim.lr_scheduler.ChainedScheduler(
-            [
-                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9),
-                torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-                    optimizer, T_0=5, T_mult=2
-                ),
-            ]
-        )
+    def optimize(self, *, dataloader, optimizer, scheduler, epoch, save):
+        epoch_total = epoch
 
         accelerator = accelerate.Accelerator()
-
         accelerate.logging.get_logger(__name__).info(
-            "[Train] ----- Dataset: {} (entry={}, noise={}, batch={}, seed={}) - creation".format(
-                entry_total * (noise if noise else 1),
-                entry_total,
-                (noise if noise else 1),
-                batch_size,
-                seed,
-            )
-        )
-
-        dataset = cspace.torch.classes.Dataset(
-            *self.rand(total=entry_total, noise=noise, seed=seed)
-        )
-        dataloader = torch.utils.data.DataLoader(
-            dataset,
-            batch_size=batch_size,
-            collate_fn=cspace.torch.classes.Dataset.collate_fn,
-            shuffle=True,
-        )
-
-        accelerate.logging.get_logger(__name__).info(
-            "[Train] ----- Dataset: {} (entry={}, noise={}, batch={}, seed={}) - complete".format(
-                len(dataset), entry_total, (noise if noise else 1), batch_size, seed
+            "[Train] ----- Dataset: {} (epoch={}, batch={}) - creation".format(
+                len(dataloader.dataset), epoch_total, dataloader.batch_size
             )
         )
 
@@ -277,8 +148,45 @@ class Kinematics(cspace.torch.classes.Kinematics):
                     "[Train] ----- Epoch {} [{}/{}] - Loss: {} [/Train]".format(
                         epoch,
                         count,
-                        len(dataset),
+                        len(dataloader.dataset),
                         total / count,
                     )
                 )
-            accelerator.save_state(save) if save else None
+            (
+                accelerator.save(
+                    self,
+                    save,
+                )
+                if save
+                else None
+            )
+        accelerate.logging.get_logger(__name__).info(
+            "[Train] ----- Dataset: {} (epoch={}, batch={}) - complete".format(
+                len(dataloader.dataset), epoch_total, dataloader.batch_size
+            )
+        )
+
+    def loss(self, pred, true):
+        assert true.batch == pred.shape[:-1]
+
+        pred_value = torch.unflatten(pred, -1, (-1, self.bucket))
+        assert pred_value.shape[-2:] == torch.Size(
+            [6 * len(self.link) + 1 * len(self.joint), self.bucket]
+        )
+        pred_value = pred_value[..., 6 * len(self.link) :, :]
+        pred_value = torch.transpose(pred_value, -1, -2)
+
+        zero_state = cspace.torch.classes.JointStateCollection.zero(
+            self.spec, self.joint, true.batch
+        )
+        true_state = cspace.torch.classes.JointStateCollection(
+            self.joint,
+            torch.stack(
+                tuple(true.position(self.spec, name) for name in self.joint), dim=-1
+            ),
+        )
+        true_delta = zero_state.delta(self.spec, true_state)
+        true_delta = true_delta.to(pred_value.device)
+        true_value = true_delta * (self.bucket - 1)
+        true_value = torch.clip(true_value.to(torch.int64), min=0, max=self.bucket - 1)
+        return self.loss_fn(pred_value, true_value)

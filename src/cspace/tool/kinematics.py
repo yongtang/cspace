@@ -1,20 +1,11 @@
 import cspace.transformers
 import argparse
-import pathlib
 import logging
-import accelerate
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--urdf",
-        dest="urdf",
-        type=str,
-        required=True,
-    )
     parser.add_argument("--load", dest="load", type=str, required=True)
-    parser.add_argument("--link", dest="link", type=str, nargs="+", required=True)
     parser.add_argument("--joint", dest="joint", type=str, nargs="+", required=True)
 
     args = parser.parse_args()
@@ -26,16 +17,13 @@ def main():
     )
     logging.getLogger(__name__).info(f"Args: {args}")
 
-    kinematics = cspace.transformers.Kinematics(
-        pathlib.Path(args.urdf).read_text(), *args.link, model="gpt2"
-    )
-    kinematics.model = accelerate.load_checkpoint_and_dispatch(
-        kinematics.model, checkpoint=args.load
-    )
+    kinematics = cspace.transformers.Kinematics.load(args.load)
 
     joint, position = zip(*tuple(e.split(":", maxsplit=1) for e in args.joint))
     joint, position = tuple(joint), tuple(float(e) for e in position)
     state = cspace.torch.classes.JointStateCollection(joint, position)
+
+    assert joint == kinematics.joint
 
     pose = kinematics.forward(state)
 

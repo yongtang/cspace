@@ -437,6 +437,115 @@ class Kinematics(cspace.cspace.classes.Kinematics):
 
             return state
 
+    @classmethod
+    def load(cls, file):
+        return torch.load(file)
+
+    def train(
+        self, *, total=None, epoch=None, batch=None, noise=None, seed=None, save=None
+    ):
+        epoch = epoch if epoch else 1
+        batch_size = batch if batch else 128
+        entry_total = total if total else 1024
+
+        optimizer = torch.optim.AdamW(self.model.parameters())
+        scheduler = torch.optim.lr_scheduler.ChainedScheduler(
+            [
+                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9),
+                torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                    optimizer, T_0=5, T_mult=2
+                ),
+            ]
+        )
+
+        dataset = Dataset(
+            *self.rand(
+                total=entry_total,
+                noise=noise,
+                seed=seed,
+            )
+        )
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=batch_size,
+            collate_fn=cspace.torch.classes.Dataset.collate_fn,
+            shuffle=True,
+        )
+
+        self.optimize(
+            dataloader=dataloader,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            epoch=epoch,
+            save=save,
+        )
+
+    def rand(self, *, total, noise, seed=None, std=0.01):
+        generator = torch.Generator().manual_seed(seed)
+        zero = cspace.torch.classes.JointStateCollection.zero(
+            self.spec, self.joint, batch=[total]
+        )
+        state = zero.apply(
+            self.spec,
+            torch.rand(
+                total, len(self.joint), generator=generator, dtype=torch.float64
+            ),
+        )
+        pose = self.forward(state)
+
+        if noise:
+            linear_shape = [noise] + list(pose.batch) + [3, len(pose.name)]
+
+            linear_std = torch.ones(linear_shape, dtype=torch.float64) * std
+            linear_mean = torch.zeros(linear_shape, dtype=torch.float64)
+
+            linear_noise = torch.normal(linear_mean, linear_std, generator=generator)
+
+            position = pose._position_
+            linear = position.expand(*linear_shape)
+            linear = linear + linear_noise
+            position = linear
+
+            angular_shape = [noise] + list(pose.batch) + [3, len(pose.name)]
+
+            angular_std = torch.ones(angular_shape, dtype=torch.float64) * std
+            angular_mean = torch.zeros(angular_shape, dtype=torch.float64)
+
+            angular_noise = torch.normal(angular_mean, angular_std, generator=generator)
+
+            orientation = pose._orientation_
+            angular = torch.transpose(
+                cspace.torch.ops.qua_to_rpy(torch.transpose(orientation, -2, -1)),
+                -2,
+                -1,
+            )
+            angular = angular + angular_noise
+            orientation = torch.transpose(
+                cspace.torch.ops.rpy_to_qua(torch.transpose(angular, -2, -1)), -2, -1
+            )
+
+            pose = cspace.torch.classes.LinkPoseCollection(
+                base=pose.base,
+                name=pose.name,
+                position=torch.flatten(position, 0, 1),
+                orientation=torch.flatten(orientation, 0, 1),
+            )
+
+            shape = [noise] + list(state.batch) + [len(state.name)]
+
+            position = state._position_
+            position = position.expand(*shape)
+
+            state = cspace.torch.classes.JointStateCollection(
+                name=state.name,
+                position=torch.flatten(position, 0, 1),
+            )
+
+        return pose, state
+
+    def optimize(self, *, dataloader, optimizer, scheduler, epoch, save):
+        raise NotImplementedError
+
     def encode(self, pose):
         raise NotImplementedError
 

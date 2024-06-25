@@ -5,7 +5,6 @@ import cspace.transformers
 import pathlib
 import logging
 import torch
-import accelerate
 
 
 def test_kinematics(
@@ -90,12 +89,7 @@ def test_train(
     )
     logging.getLogger(__name__).info(f"Model save {saved}")
 
-    kinematics = cspace.transformers.Kinematics(
-        pathlib.Path(urdf_file_tutorial).read_text(), "left_gripper", model=model
-    )
-    kinematics.model = accelerate.load_checkpoint_and_dispatch(
-        kinematics.model, checkpoint=saved
-    )
+    kinematics = cspace.transformers.Kinematics.load(saved)
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
