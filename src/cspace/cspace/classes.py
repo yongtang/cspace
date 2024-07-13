@@ -42,8 +42,15 @@ class LinkPoseCollection(abc.ABC):
                 joint.origin.xyz[0] * joint.origin.xyz[0]
                 + joint.origin.xyz[1] * joint.origin.xyz[1]
                 + joint.origin.xyz[2] * joint.origin.xyz[2]
-            ) + (joint.motion.limit if joint.motion.call != "angular" else 0.0)
-            return limit * 2.0  # 2.0: + or -
+            )
+
+            limit = (
+                (limit + joint.motion.limit)
+                if joint.motion.call != "angular"
+                else (limit * 2.0)
+            )  # in angular limit (non exp/log) can double (2.0)
+
+            return limit * 2.0  # 2.0: + or - in exp/log map
 
         def f_delta(spec, name, self, other):
             limit = sum(map(f_joint, spec.joint))
