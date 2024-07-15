@@ -46,12 +46,12 @@ class Model(torch.nn.Module):
 
 
 class Kinematics(cspace.torch.classes.Kinematics):
-    bucket = 1000
     loss_fn = torch.nn.CrossEntropyLoss()
 
-    def __init__(self, description, *link, base=None, model=None):
+    def __init__(self, description, *link, base=None, model=None, bucket=None):
         super().__init__(description, *link, base=base, model=model)
         if model:
+            self.bucket = bucket if bucket else 1000
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
 
             for param in transformer.get_input_embeddings().parameters():
