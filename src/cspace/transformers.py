@@ -5,9 +5,16 @@ import accelerate
 import torch
 
 
-class InverseModel(torch.nn.Module):
+class Model(torch.nn.Module):
     def __init__(self, transformer, input_embeddings, output_embeddings):
         super().__init__()
+        transformer.get_input_embeddings().reset_parameters()
+        for param in transformer.get_input_embeddings().parameters():
+            param.requires_grad = False
+        transformer.get_output_embeddings().reset_parameters()
+        for param in transformer.get_output_embeddings().parameters():
+            param.requires_grad = False
+
         self.transformer = transformer
         self.input_embeddings = input_embeddings
         self.output_embeddings = output_embeddings
@@ -110,27 +117,20 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         if model:
             self.bucket = bucket if bucket else 1000
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
-
-            for param in transformer.get_input_embeddings().parameters():
-                param.requires_grad = False
-            transformer.get_output_embeddings().reset_parameters()
-            for param in transformer.get_output_embeddings().parameters():
-                param.requires_grad = False
-
             input_embeddings = torch.nn.Linear(
-                (6 * len(self.link) + 1 * len(self.joint)) * self.bucket,
+                (6 * len(self.link)) * self.bucket,
                 transformer.get_input_embeddings().embedding_dim,
                 dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
             )
             output_embeddings = torch.nn.Linear(
                 transformer.get_input_embeddings().embedding_dim,
-                (6 * len(self.link) + 1 * len(self.joint)) * self.bucket,
+                (1 * len(self.joint)) * self.bucket,
                 dtype=transformer.get_output_embeddings().weight.dtype,
                 bias=False,
             )
 
-            self.model = InverseModel(transformer, input_embeddings, output_embeddings)
+            self.model = Model(transformer, input_embeddings, output_embeddings)
 
     def inverse(self, pose):
         with torch.no_grad():
@@ -149,13 +149,10 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             )
         )
         delta = zero.delta(self.spec, pose)
-        blank = torch.zeros(pose.batch + (1, len(self.joint)))
 
         delta = torch.reshape(delta, pose.batch + tuple([-1]))
-        blank = torch.reshape(blank, pose.batch + tuple([-1]))
 
-        value = torch.concatenate((delta, blank), dim=-1)
-        value = value * (self.bucket - 1)
+        value = delta * (self.bucket - 1)
         value = torch.clip(value.to(torch.int64), min=0, max=self.bucket - 1)
         encoded = torch.nn.functional.one_hot(value, self.bucket)
         encoded = torch.flatten(encoded, -2, -1)
@@ -166,10 +163,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         batch = pred.shape[:-1]
 
         encoded = torch.unflatten(pred, -1, (-1, self.bucket))
-        assert encoded.shape[-2:] == torch.Size(
-            [6 * len(self.link) + 1 * len(self.joint), self.bucket]
-        )
-        encoded = encoded[..., 6 * len(self.link) :, :]
+        assert encoded.shape[-2:] == torch.Size([1 * len(self.joint), self.bucket])
 
         delta_value = torch.argmax(encoded, dim=-1)
         delta_value = delta_value.to(torch.float64) / (self.bucket - 1)
@@ -237,10 +231,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         assert true.batch == pred.shape[:-1]
 
         pred_value = torch.unflatten(pred, -1, (-1, self.bucket))
-        assert pred_value.shape[-2:] == torch.Size(
-            [6 * len(self.link) + 1 * len(self.joint), self.bucket]
-        )
-        pred_value = pred_value[..., 6 * len(self.link) :, :]
+        assert pred_value.shape[-2:] == torch.Size([1 * len(self.joint), self.bucket])
         pred_value = torch.transpose(pred_value, -1, -2)
 
         zero_state = cspace.torch.classes.JointStateCollection.zero(
@@ -359,3 +350,24 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             )
 
         return pose, state
+
+
+class PolicyKinematics(cspace.torch.classes.Kinematics):
+    def __init__(self, description, *link, base=None, model=None):
+        super().__init__(description, *link, base=base)
+        if model:
+            transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
+            input_embeddings = torch.nn.Linear(
+                (6 * len(self.link)) * self.bucket,
+                transformer.get_input_embeddings().embedding_dim,
+                dtype=transformer.get_input_embeddings().weight.dtype,
+                bias=False,
+            )
+            output_embeddings = torch.nn.Linear(
+                transformer.get_input_embeddings().embedding_dim,
+                (1 * len(self.joint)) * self.bucket,
+                dtype=transformer.get_output_embeddings().weight.dtype,
+                bias=False,
+            )
+
+            self.model = Model(transformer, input_embeddings, output_embeddings)

@@ -7,7 +7,7 @@ import logging
 import torch
 
 
-def test_kinematics(
+def test_inverse_kinematics(
     device, urdf_file_tutorial, joint_state_tutorial, link_pose_tutorial
 ):
     kinematics = cspace.transformers.InverseKinematics(
@@ -62,7 +62,7 @@ def test_kinematics(
         pytest.param("gpt2", 12345, 8, 2, None, 5),
     ],
 )
-def test_train(
+def test_inverse_kinematics_train(
     device,
     urdf_file_tutorial,
     joint_state_tutorial,
