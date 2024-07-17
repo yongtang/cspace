@@ -23,7 +23,7 @@ def main():
     joint, position = tuple(joint), tuple(float(e) for e in position)
     state = cspace.torch.classes.JointStateCollection(joint, position)
 
-    assert joint == kinematics.joint
+    assert joint == kinematics.joint, "{} vs. {}".format(joint, kinematics.joint)
 
     pose = kinematics.forward(state)
 
