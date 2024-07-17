@@ -591,3 +591,6 @@ class Kinematics:
 
     def inverse(self, pose):
         raise NotImplementedError
+
+    def policy(self, state, observation):
+        raise NotImplementedError
