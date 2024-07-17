@@ -17,7 +17,7 @@ def main():
     )
     logging.getLogger(__name__).info(f"Args: {args}")
 
-    kinematics = cspace.transformers.Kinematics.load(args.load)
+    kinematics = cspace.transformers.InverseKinematics.load(args.load)
 
     joint, position = zip(*tuple(e.split(":", maxsplit=1) for e in args.joint))
     joint, position = tuple(joint), tuple(float(e) for e in position)

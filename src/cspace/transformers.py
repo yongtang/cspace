@@ -5,7 +5,7 @@ import accelerate
 import torch
 
 
-class Model(torch.nn.Module):
+class InverseModel(torch.nn.Module):
     def __init__(self, transformer, input_embeddings, output_embeddings):
         super().__init__()
         self.transformer = transformer
@@ -45,7 +45,7 @@ class Model(torch.nn.Module):
         return data
 
 
-class Dataset(torch.utils.data.Dataset):
+class InverseDataset(torch.utils.data.Dataset):
     def __init__(self, pose, state):
         assert isinstance(pose, cspace.torch.classes.LinkPoseCollection)
         assert len(pose.batch) == 1
@@ -102,7 +102,7 @@ class Dataset(torch.utils.data.Dataset):
         return pose, state
 
 
-class Kinematics(cspace.torch.classes.Kinematics):
+class InverseKinematics(cspace.torch.classes.Kinematics):
     loss_fn = torch.nn.CrossEntropyLoss()
 
     def __init__(self, description, *link, base=None, model=None, bucket=None):
@@ -130,7 +130,7 @@ class Kinematics(cspace.torch.classes.Kinematics):
                 bias=False,
             )
 
-            self.model = Model(transformer, input_embeddings, output_embeddings)
+            self.model = InverseModel(transformer, input_embeddings, output_embeddings)
 
     def inverse(self, pose):
         with torch.no_grad():
@@ -275,7 +275,7 @@ class Kinematics(cspace.torch.classes.Kinematics):
             ]
         )
 
-        dataset = Dataset(
+        dataset = InverseDataset(
             *self.rand(
                 total=entry_total,
                 noise=noise,
@@ -285,7 +285,7 @@ class Kinematics(cspace.torch.classes.Kinematics):
         dataloader = torch.utils.data.DataLoader(
             dataset,
             batch_size=batch_size,
-            collate_fn=Dataset.collate_fn,
+            collate_fn=InverseDataset.collate_fn,
             shuffle=True,
         )
 

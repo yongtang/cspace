@@ -10,7 +10,7 @@ import torch
 def test_kinematics(
     device, urdf_file_tutorial, joint_state_tutorial, link_pose_tutorial
 ):
-    kinematics = cspace.transformers.Kinematics(
+    kinematics = cspace.transformers.InverseKinematics(
         pathlib.Path(urdf_file_tutorial).read_text(), "left_gripper"
     )
 
@@ -81,7 +81,7 @@ def test_train(
         f"{request.node.name}-{request.node.callspec.id}.pth",
     )
 
-    kinematics = cspace.transformers.Kinematics(
+    kinematics = cspace.transformers.InverseKinematics(
         pathlib.Path(urdf_file_tutorial).read_text(), "left_gripper", model=model
     )
     kinematics.train(
@@ -89,7 +89,7 @@ def test_train(
     )
     logging.getLogger(__name__).info(f"Model save {saved}")
 
-    kinematics = cspace.transformers.Kinematics.load(saved)
+    kinematics = cspace.transformers.InverseKinematics.load(saved)
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)

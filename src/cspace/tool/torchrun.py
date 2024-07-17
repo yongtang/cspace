@@ -45,9 +45,9 @@ def main():
     logging.getLogger(__name__).info(f"Args: {args}")
 
     kinematics = (
-        cspace.transformers.Kinematics.load(args.load)
+        cspace.transformers.InverseKinematics.load(args.load)
         if args.load
-        else cspace.transformers.Kinematics(
+        else cspace.transformers.InverseKinematics(
             pathlib.Path(args.urdf).read_text(),
             *args.link,
             model="gpt2",
