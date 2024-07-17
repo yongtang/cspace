@@ -371,3 +371,19 @@ class PolicyKinematics(cspace.torch.classes.Kinematics):
             )
 
             self.model = Model(transformer, input_embeddings, output_embeddings)
+
+    def policy(self, state, observation):
+        with torch.no_grad():
+            data = self.encode(state, observation)
+
+            pred = self.model(data)
+
+            state = self.decode(pred)
+
+            return state
+
+    def encode(self, state, observation):
+        raise NotImplementedError
+
+    def decode(self, pred):
+        raise NotImplementedError
