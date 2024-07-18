@@ -110,7 +110,7 @@ class InverseDataset(torch.utils.data.Dataset):
 
 
 class InverseKinematics(cspace.torch.classes.Kinematics):
-    loss_fn = torch.nn.CrossEntropyLoss()
+    loss_fn = torch.nn.MSELoss()
 
     def __init__(self, description, *link, base=None, model=None, bucket=None):
         super().__init__(description, *link, base=base)
@@ -125,7 +125,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             )
             output_embeddings = torch.nn.Linear(
                 transformer.get_input_embeddings().embedding_dim,
-                (1 * len(self.joint)) * self.bucket,
+                (1 * len(self.joint)),
                 dtype=transformer.get_output_embeddings().weight.dtype,
                 bias=False,
             )
@@ -161,20 +161,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
     def decode(self, pred):
         batch = pred.shape[:-1]
-
-        encoded = torch.unflatten(pred, -1, (-1, self.bucket))
-        assert encoded.shape[-2:] == torch.Size([1 * len(self.joint), self.bucket])
-
-        delta_value = torch.argmax(encoded, dim=-1)
-        delta_value = delta_value.to(torch.float64) / (self.bucket - 1)
-        delta_value = torch.clip(delta_value, min=0.0, max=1.0)
-
-        zero = cspace.torch.classes.JointStateCollection.zero(
-            self.spec, self.joint, batch
-        )
-        state = zero.apply(self.spec, delta_value)
-
-        return state
+        return cspace.torch.classes.JointStateCollection(self.joint, pred)
 
     def optimize(self, *, dataloader, optimizer, scheduler, epoch, save):
         epoch_total = epoch
@@ -229,25 +216,12 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
     def loss(self, pred, true):
         assert true.batch == pred.shape[:-1]
+        assert pred.shape[-1] == len(self.joint)
 
-        pred_value = torch.unflatten(pred, -1, (-1, self.bucket))
-        assert pred_value.shape[-2:] == torch.Size([1 * len(self.joint), self.bucket])
-        pred_value = torch.transpose(pred_value, -1, -2)
-
-        zero_state = cspace.torch.classes.JointStateCollection.zero(
-            self.spec, self.joint, true.batch
-        )
-        true_state = cspace.torch.classes.JointStateCollection(
-            self.joint,
-            torch.stack(
-                tuple(true.position(self.spec, name) for name in self.joint), dim=-1
-            ),
-        )
-        true_delta = zero_state.delta(self.spec, true_state)
-        true_delta = true_delta.to(pred_value.device)
-        true_value = true_delta * (self.bucket - 1)
-        true_value = torch.clip(true_value.to(torch.int64), min=0, max=self.bucket - 1)
-        return self.loss_fn(pred_value, true_value)
+        true_value = torch.stack(
+            tuple(true.position(self.spec, name) for name in self.joint), dim=-1
+        ).to(pred.dtype)
+        return self.loss_fn(pred, true_value)
 
     def train(
         self, *, total=None, epoch=None, batch=None, noise=None, seed=None, save=None
@@ -365,7 +339,7 @@ class PolicyKinematics(cspace.torch.classes.Kinematics):
             )
             output_embeddings = torch.nn.Linear(
                 transformer.get_input_embeddings().embedding_dim,
-                (1 * len(self.joint)) * self.bucket,
+                (1 * len(self.joint)),
                 dtype=transformer.get_output_embeddings().weight.dtype,
                 bias=False,
             )
