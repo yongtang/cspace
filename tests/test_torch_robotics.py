@@ -164,6 +164,26 @@ def test_ops(transforms3d_data, device):
             )
         assert torch.allclose(v, l, atol=1e-4), f"{index}: {v} vs. {l}"
 
+    val_xyz, val_rot = cspace.torch.ops.se3_exp(val)
+    assert val_xyz.shape == se3_xyz.shape
+    assert val_rot.shape == rot.shape
+    for index, (v, s, l, r) in enumerate(
+        zip(
+            val_xyz.unsqueeze(0).flatten(0, -2),
+            se3_xyz.unsqueeze(0).flatten(0, -2),
+            val_rot.unsqueeze(0).flatten(0, -3),
+            rot.unsqueeze(0).flatten(0, -3),
+        )
+    ):
+        angle = torch.abs(torch.arccos((torch.trace(r) - 1.0) / 2.0))
+        if (
+            torch.abs(angle - torch.pi) <= torch.finfo(r.dtype).eps
+        ):  # skip test on +-180
+            logging.getLogger(__name__).info(f"skip {index}: {v}")
+        else:
+            assert torch.allclose(v, s, atol=1e-4), f"{index}: {v} vs. {s}"
+            assert torch.allclose(l, r, atol=1e-4), f"{index}: {l} vs. {r}"
+
     val_xyz, val_rot = cspace.torch.ops.se3_mul(se3_xyz, rot, se3_xyz, rot)
     val = torch.concatenate((val_rot, val_xyz.unsqueeze(-1)), dim=-1)
     assert val.shape == se3_mul.shape

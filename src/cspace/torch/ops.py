@@ -272,6 +272,59 @@ def se3_log(xyz, rot):
     return torch.concatenate((v, axa), dim=-1)
 
 
+def se3_exp(vax):
+    vax = torch.as_tensor(vax)
+    val = vax[..., :3]
+    axa = vax[..., 3:]
+
+    eps = torch.finfo(axa.dtype).eps
+
+    axax, axay, axaz = torch.unbind(axa, dim=-1)
+    zero = torch.zeros_like(axax)
+
+    omega = torch.stack(
+        (
+            zero,
+            -axaz,
+            axay,
+            axaz,
+            zero,
+            -axax,
+            -axay,
+            axax,
+            zero,
+        ),
+        dim=-1,
+    )
+    omega = torch.unflatten(omega, -1, (3, 3))
+
+    theta = torch.linalg.norm(axa, dim=-1)
+    theta = torch.unsqueeze(torch.unsqueeze(theta, -1), -1)
+
+    shape = omega.shape
+    bmm = torch.reshape(
+        torch.bmm(torch.reshape(omega, (-1, 3, 3)), torch.reshape(omega, (-1, 3, 3))),
+        shape,
+    )
+
+    eye = torch.eye(3).expand(shape[:-2] + (3, 3))
+    xyz = (
+        eye
+        + (1.0 - torch.cos(theta)) * omega / (theta * theta)
+        + (theta - torch.sin(theta)) * bmm / (theta * theta * theta)
+    )
+    xyz = torch.where(torch.abs(theta) > eps, xyz, eye)
+
+    shape = val.shape
+    xyz = torch.reshape(xyz, (-1, 3, 3))
+    val = torch.reshape(val, (-1, 3, 1))
+    xyz = torch.reshape(torch.bmm(xyz, val), shape)
+
+    rot = so3_exp(axa)
+
+    return xyz, rot
+
+
 def se3_mul(xyz_a, rot_a, xyz_b, rot_b):
     xyz_a = torch.as_tensor(xyz_a)
     rot_a = torch.as_tensor(rot_a, dtype=xyz_a.dtype)
