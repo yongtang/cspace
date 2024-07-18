@@ -160,20 +160,55 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 self.spec, self.joint, pose.batch
             )
         )
-        delta = zero.delta(self.spec, pose)
 
-        delta = torch.reshape(delta, pose.batch + tuple([-1]))
+        value = torch.stack(
+            tuple(
+                (zero.transform(name).inverse() * pose.transform(name)).log
+                for name in zero.name
+            ),
+            dim=-2,
+        )
+        value_xyz, value_rot = cspace.torch.ops.se3_exp(value)
+        value_transform = cspace.torch.classes.Transform(xyz=value_xyz, rot=value_rot)
 
-        value = delta * (self.bucket - 1)
-        value = torch.clip(value.to(torch.int64), min=0, max=self.bucket - 1)
-        encoded = torch.nn.functional.one_hot(value, self.bucket)
-        encoded = torch.flatten(encoded, -2, -1)
+        def f_chunk(value, index, bucket, value_transform):
+            start = value * index / self.bucket
+            start_xyz, start_rot = cspace.torch.ops.se3_exp(start)
+            start_transform = cspace.torch.classes.Transform(
+                xyz=start_xyz, rot=start_rot
+            )
+            chunk = (start_transform.inverse() * value_transform).log
+            (
+                logger.info(
+                    "[Encode] ----- Pose: {} -- {}/{}".format(
+                        pose.batch, index, self.bucket
+                    )
+                )
+                if logger
+                else None
+            )
+            return chunk
+
+        encoded = torch.stack(
+            tuple(
+                f_chunk(value, index, self.bucket, value_transform)
+                for index in range(self.bucket)
+            ),
+            dim=-1,
+        )
+
+        # (batch, link, 6, bucket)
+        assert encoded.shape == pose.batch + (len(pose.name), 6, self.bucket)
+
+        encoded = torch.flatten(encoded, 1, -1)
         encoded = torch.unsqueeze(encoded, -2)
+
         (
             logger.info("[Encode] ----- Pose: {} complete".format(pose.batch))
             if logger
             else None
         )
+
         return encoded
 
     def decode(self, pred):
