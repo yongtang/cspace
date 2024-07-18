@@ -210,7 +210,7 @@ def so3_exp(axa):
         shape,
     )
 
-    eye = torch.eye(3).expand(shape[:-2] + (3, 3))
+    eye = torch.eye(3, device=axa.device, dtype=axa.dtype).expand(shape[:-2] + (3, 3))
     rot = (
         eye
         + torch.sin(theta) * omega / theta
@@ -307,7 +307,7 @@ def se3_exp(vax):
         shape,
     )
 
-    eye = torch.eye(3).expand(shape[:-2] + (3, 3))
+    eye = torch.eye(3, device=axa.device, dtype=axa.dtype).expand(shape[:-2] + (3, 3))
     xyz = (
         eye
         + (1.0 - torch.cos(theta)) * omega / (theta * theta)
