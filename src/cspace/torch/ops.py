@@ -178,6 +178,47 @@ def so3_log(rot):
     return axa
 
 
+def so3_exp(axa):
+    axa = torch.as_tensor(axa)
+    eps = torch.finfo(axa.dtype).eps
+
+    axax, axay, axaz = torch.unbind(axa, dim=-1)
+    zero = torch.zeros_like(axax)
+
+    omega = torch.stack(
+        (
+            zero,
+            -axaz,
+            axay,
+            axaz,
+            zero,
+            -axax,
+            -axay,
+            axax,
+            zero,
+        ),
+        dim=-1,
+    )
+    omega = torch.unflatten(omega, -1, (3, 3))
+
+    theta = torch.linalg.norm(axa, dim=-1)
+    theta = torch.unsqueeze(torch.unsqueeze(theta, -1), -1)
+
+    shape = omega.shape
+    bmm = torch.reshape(
+        torch.bmm(torch.reshape(omega, (-1, 3, 3)), torch.reshape(omega, (-1, 3, 3))),
+        shape,
+    )
+
+    eye = torch.eye(3).expand(shape[:-2] + (3, 3))
+    rot = (
+        eye
+        + torch.sin(theta) * omega / theta
+        + (1.0 - torch.cos(theta)) * bmm / (theta * theta)
+    )
+    return torch.where(torch.abs(theta) > eps, rot, eye)
+
+
 def se3_log(xyz, rot):
     xyz = torch.as_tensor(xyz)
     rot = torch.as_tensor(rot, dtype=xyz.dtype)

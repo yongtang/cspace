@@ -117,13 +117,33 @@ def test_ops(transforms3d_data, device):
     ):
         if torch.allclose(
             torch.linalg.norm(v),
-            torch.arccos(torch.zeros(1, dtype=rot.dtype, device=device)) * 2,
+            torch.tensor(torch.pi, dtype=rot.dtype, device=device),
         ):
             assert torch.allclose(
                 torch.abs(v), torch.abs(r), atol=1e-4
             ), f"{index}: {v} vs. {r}"
         else:
             assert torch.allclose(v, r, atol=1e-4), f"{index}: {v} vs. {r}"
+
+    axa = val
+    val = cspace.torch.ops.so3_exp(axa)
+    assert val.shape == rot.shape
+    for index, (v, r, a) in enumerate(
+        zip(
+            val.unsqueeze(0).flatten(0, -3),
+            rot.unsqueeze(0).flatten(0, -3),
+            axa.unsqueeze(0).flatten(0, -2),
+        )
+    ):
+        if torch.allclose(
+            torch.linalg.norm(a),
+            torch.tensor(torch.pi, dtype=rot.dtype, device=device),
+        ):
+            assert torch.allclose(
+                torch.abs(v), torch.abs(r), atol=1e-4
+            ), f"{index}: {v} vs. {r}, - {a}"
+        else:
+            assert torch.allclose(v, r, atol=1e-4), f"{index}: {v} vs. {r} - {a}"
 
     val = cspace.torch.ops.se3_log(se3_xyz, rot)
     assert val.shape == se3_log.shape
