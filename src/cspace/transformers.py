@@ -148,7 +148,13 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
             return state
 
-    def encode(self, pose):
+    def encode(self, pose, logger=None):
+        (
+            logger.info("[Encode] ----- Pose: {} creation".format(pose.batch))
+            if logger
+            else None
+        )
+
         zero = self.forward(
             cspace.torch.classes.JointStateCollection.zero(
                 self.spec, self.joint, pose.batch
@@ -163,6 +169,11 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         encoded = torch.nn.functional.one_hot(value, self.bucket)
         encoded = torch.flatten(encoded, -2, -1)
         encoded = torch.unsqueeze(encoded, -2)
+        (
+            logger.info("[Encode] ----- Pose: {} complete".format(pose.batch))
+            if logger
+            else None
+        )
         return encoded
 
     def decode(self, pred):
@@ -360,7 +371,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 name=state.name,
                 position=torch.flatten(position, 0, 1),
             )
-        data = self.encode(pose)
+        data = self.encode(pose, logger=logger)
         return data, pose, state
 
 
@@ -394,7 +405,7 @@ class PolicyKinematics(cspace.torch.classes.Kinematics):
 
             return state
 
-    def encode(self, state, observation):
+    def encode(self, state, observation, logger=None):
         raise NotImplementedError
 
     def decode(self, pred):
