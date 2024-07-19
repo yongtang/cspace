@@ -124,7 +124,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             self.bucket = bucket if bucket else 1000
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
-                (6 * len(self.link)) * self.bucket,
+                (6 * len(self.link)) * (self.bucket * 2 + 1),
                 transformer.get_input_embeddings().embedding_dim,
                 dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
@@ -155,29 +155,16 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             else None
         )
 
-        zero = self.forward(
-            cspace.torch.classes.JointStateCollection.zero(
-                self.spec, self.joint, batch=pose.batch, device=device
-            )
+        zero = cspace.torch.classes.JointStateCollection.zero(
+            self.spec, self.joint, batch=pose.batch, device=device
         )
 
-        value = torch.stack(
-            tuple(
-                (zero.transform(name).inverse() * pose.transform(name)).log
-                for name in zero.name
-            ),
-            dim=-2,
-        )
-        value_xyz, value_rot = cspace.torch.ops.se3_exp(value)
-        value_transform = cspace.torch.classes.Transform(xyz=value_xyz, rot=value_rot)
-
-        def f_chunk(value, index, bucket, value_transform):
-            start = value * index / self.bucket
-            start_xyz, start_rot = cspace.torch.ops.se3_exp(start)
-            start_transform = cspace.torch.classes.Transform(
-                xyz=start_xyz, rot=start_rot
+        def f_value(self, index, zero, pose):
+            delta = index / self.bucket
+            delta = (
+                torch.ones(pose.batch + tuple([len(zero.name)]), dtype=torch.float64)
+                * delta
             )
-            chunk = (start_transform.inverse() * value_transform).log
             (
                 logger.info(
                     "[Encode] ----- Pose: {} -- {}/{}".format(
@@ -187,18 +174,26 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 if logger
                 else None
             )
-            return chunk
+            chunk = self.forward(zero.apply(self.spec, delta))
+            value = torch.stack(
+                tuple(
+                    (chunk.transform(name).inverse() * pose.transform(name)).log
+                    for name in pose.name
+                ),
+                dim=-2,
+            )
+            return value
 
         encoded = torch.stack(
             tuple(
-                f_chunk(value, index, self.bucket, value_transform)
-                for index in range(self.bucket)
+                f_value(self, index, zero, pose)
+                for index in range(-self.bucket, self.bucket + 1)
             ),
             dim=-1,
         )
 
-        # (batch, link, 6, bucket)
-        assert encoded.shape == pose.batch + (len(pose.name), 6, self.bucket)
+        # (batch, link, 6, bucket * 2 + 1)
+        assert encoded.shape == pose.batch + (len(pose.name), 6, (self.bucket * 2 + 1))
 
         encoded = torch.flatten(encoded, 1, -1)
         encoded = torch.unsqueeze(encoded, -2)
