@@ -146,7 +146,7 @@ class JointStateCollection(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def zero(cls, spec, joint, batch=None):
+    def zero(cls, spec, joint, batch=None, device=None):
         raise NotImplementedError
 
     @classmethod

@@ -148,7 +148,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
             return state
 
-    def encode(self, pose, logger=None):
+    def encode(self, pose, logger=None, device=None):
         (
             logger.info("[Encode] ----- Pose: {} creation".format(pose.batch))
             if logger
@@ -157,7 +157,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
         zero = self.forward(
             cspace.torch.classes.JointStateCollection.zero(
-                self.spec, self.joint, pose.batch
+                self.spec, self.joint, batch=pose.batch, device=device
             )
         )
         delta = zero.delta(self.spec, pose)
@@ -289,6 +289,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         dataset = InverseDataset(
             *self.rand(
                 logger=logger,
+                device=accelerator.device,
                 total=entry_total,
                 noise=noise,
                 seed=seed,
@@ -311,7 +312,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             save=save,
         )
 
-    def rand(self, *, logger, total, noise, seed=None, std=0.01):
+    def rand(self, *, logger, device, total, noise, seed=None, std=0.01):
         generator = torch.Generator().manual_seed(seed)
         zero = cspace.torch.classes.JointStateCollection.zero(
             self.spec, self.joint, batch=[total]
@@ -371,7 +372,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 name=state.name,
                 position=torch.flatten(position, 0, 1),
             )
-        data = self.encode(pose, logger=logger)
+        data = self.encode(pose, logger=logger, device=device)
         return data, pose, state
 
 
@@ -405,7 +406,7 @@ class PolicyKinematics(cspace.torch.classes.Kinematics):
 
             return state
 
-    def encode(self, state, observation, logger=None):
+    def encode(self, state, observation, logger=None, device=None):
         raise NotImplementedError
 
     def decode(self, pred):

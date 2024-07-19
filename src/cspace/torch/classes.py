@@ -196,13 +196,15 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         return tuple(self._position_.shape[:-1])
 
     @classmethod
-    def zero(cls, spec, joint, batch=None):
+    def zero(cls, spec, joint, batch=None, device=None):
         batch = batch if batch else []
         return cls(
             joint,
             torch.stack(
                 tuple(
-                    torch.tensor(spec.joint(name).motion.zero).expand(batch)
+                    torch.tensor(spec.joint(name).motion.zero, device=device).expand(
+                        batch
+                    )
                     for name in joint
                 ),
                 dim=-1,
