@@ -53,13 +53,15 @@ class Model(torch.nn.Module):
 
 
 class InverseDataset(torch.utils.data.Dataset):
-    def __init__(self, pose, state):
+    def __init__(self, data, pose, state):
         assert isinstance(pose, cspace.torch.classes.LinkPoseCollection)
         assert len(pose.batch) == 1
         assert isinstance(state, cspace.torch.classes.JointStateCollection)
         assert len(state.batch) == 1
         assert pose.batch == state.batch
+        assert data.shape[:-2] == pose.batch
 
+        self._data_ = data
         self._pose_ = pose
         self._state_ = state
 
@@ -67,6 +69,7 @@ class InverseDataset(torch.utils.data.Dataset):
         return self._pose_.batch[0]
 
     def __getitem__(self, key):
+        data = self._data_[key : key + 1, ...]
         pose = cspace.torch.classes.LinkPoseCollection(
             base=self._pose_.base,
             name=self._pose_.name,
@@ -77,11 +80,11 @@ class InverseDataset(torch.utils.data.Dataset):
             name=self._state_.name,
             position=torch.select(self._state_._position_, dim=0, index=key),
         )
-        return pose, state
+        return data, pose, state
 
     @classmethod
     def collate_fn(cls, entries):
-        pose, state = list(zip(*entries))
+        data, pose, state = list(zip(*entries))
 
         info = {(e.base, e.name) for e in pose}
         assert len(info) == 1
@@ -106,7 +109,9 @@ class InverseDataset(torch.utils.data.Dataset):
             position=position,
         )
 
-        return pose, state
+        data = torch.concatenate(data, dim=0)
+
+        return data, pose, state
 
 
 class InverseKinematics(cspace.torch.classes.Kinematics):
@@ -193,8 +198,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         model.train()
         for epoch in range(epoch_total):
             total, count = 0, 0
-            for batch, (pose, true) in enumerate(dataloader):
-                data = self.encode(pose)
+            for batch, (data, pose, true) in enumerate(dataloader):
                 pred = model(data)
                 loss = self.loss(pred, true)
                 accelerator.backward(loss)
@@ -348,8 +352,8 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 name=state.name,
                 position=torch.flatten(position, 0, 1),
             )
-
-        return pose, state
+        data = self.encode(pose)
+        return data, pose, state
 
 
 class PolicyKinematics(cspace.torch.classes.Kinematics):
