@@ -2,6 +2,7 @@ import cspace.cspace.classes
 import cspace.torch.classes
 import transformers
 import accelerate
+import logging
 import torch
 
 
@@ -181,11 +182,12 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
         return state
 
-    def optimize(self, *, dataloader, optimizer, scheduler, epoch, save):
+    def optimize(
+        self, *, accelerator, dataloader, optimizer, scheduler, logger, epoch, save
+    ):
         epoch_total = epoch
 
-        accelerator = accelerate.Accelerator()
-        accelerate.logging.get_logger(__name__).info(
+        logger.info(
             "[Train] ----- Dataset: {} (epoch={}, batch={}) - creation".format(
                 len(dataloader.dataset), epoch_total, dataloader.batch_size
             )
@@ -209,7 +211,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 pred = accelerator.gather_for_metrics(pred)
                 total += loss.sum().item()
                 count += len(pred)
-                accelerate.logging.get_logger(__name__).info(
+                logger.info(
                     "[Train] ----- Epoch {} [{}/{}] - Loss: {} [/Train]".format(
                         epoch,
                         count,
@@ -225,7 +227,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 if save
                 else None
             )
-        accelerate.logging.get_logger(__name__).info(
+        logger.info(
             "[Train] ----- Dataset: {} (epoch={}, batch={}) - complete".format(
                 len(dataloader.dataset), epoch_total, dataloader.batch_size
             )
@@ -260,6 +262,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         batch_size = batch if batch else 128
         entry_total = total if total else 1024
 
+        accelerator = accelerate.Accelerator()
         optimizer = torch.optim.AdamW(self.model.parameters())
         scheduler = torch.optim.lr_scheduler.ChainedScheduler(
             [
@@ -269,9 +272,12 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 ),
             ]
         )
+        logger = accelerate.logging.get_logger(__name__)
+        logger.setLevel(logging.INFO)
 
         dataset = InverseDataset(
             *self.rand(
+                logger=logger,
                 total=entry_total,
                 noise=noise,
                 seed=seed,
@@ -285,14 +291,16 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         )
 
         self.optimize(
+            accelerator=accelerator,
             dataloader=dataloader,
             optimizer=optimizer,
             scheduler=scheduler,
+            logger=logger,
             epoch=epoch,
             save=save,
         )
 
-    def rand(self, *, total, noise, seed=None, std=0.01):
+    def rand(self, *, logger, total, noise, seed=None, std=0.01):
         generator = torch.Generator().manual_seed(seed)
         zero = cspace.torch.classes.JointStateCollection.zero(
             self.spec, self.joint, batch=[total]
