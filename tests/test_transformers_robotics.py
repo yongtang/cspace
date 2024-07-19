@@ -2,12 +2,12 @@ import pytest
 
 import cspace.transformers
 
-import pathlib
-import logging
 import torch
+import pathlib
+import accelerate
 
 
-def test_inverse_kinematics(
+def test_forward_kinematics(
     device, urdf_file_tutorial, joint_state_tutorial, link_pose_tutorial
 ):
     kinematics = cspace.transformers.InverseKinematics(
@@ -62,7 +62,7 @@ def test_inverse_kinematics(
         pytest.param("gpt2", 12345, 8, 2, None, 5),
     ],
 )
-def test_inverse_kinematics_train(
+def test_inverse_kinematics(
     device,
     urdf_file_tutorial,
     joint_state_tutorial,
@@ -76,20 +76,44 @@ def test_inverse_kinematics_train(
     request,
     tmp_path_factory,
 ):
-    saved = pathlib.Path.joinpath(
-        tmp_path_factory.mktemp("model"),
+    dataset_saved = pathlib.Path.joinpath(
+        tmp_path_factory.mktemp("storage"),
+        f"{request.node.name}-{request.node.callspec.id}.data",
+    )
+    kinematics_saved = pathlib.Path.joinpath(
+        tmp_path_factory.mktemp("storage"),
         f"{request.node.name}-{request.node.callspec.id}.pth",
     )
 
     kinematics = cspace.transformers.InverseKinematics(
         pathlib.Path(urdf_file_tutorial).read_text(), "left_gripper", model=model
     )
-    kinematics.train(
-        seed=seed, total=total, batch=batch, noise=noise, epoch=epoch, save=saved
-    )
-    logging.getLogger(__name__).info(f"Model save {saved}")
 
-    kinematics = cspace.transformers.InverseKinematics.load(saved)
+    accelerator = accelerate.Accelerator()
+    logger = accelerate.logging.get_logger(__name__)
+
+    dataset = cspace.transformers.InverseDataset(
+        *kinematics.rand(logger=logger, total=total, noise=noise, seed=seed)
+    )
+
+    torch.save(dataset, dataset_saved)
+    logger.info(f"Data save {dataset_saved}")
+    torch.save(kinematics, kinematics_saved)
+    logger.info(f"Model save {dataset_saved}")
+
+    dataset = torch.load(dataset_saved)
+    logger.info(f"Data load {dataset_saved}")
+    kinematics = torch.load(kinematics_saved)
+    logger.info(f"Model load {dataset_saved}")
+
+    kinematics.train(
+        logger=logger,
+        dataset=dataset,
+        accelerator=accelerator,
+        batch=batch,
+        epoch=epoch,
+        save=kinematics_saved,
+    )
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
@@ -101,7 +125,7 @@ def test_inverse_kinematics_train(
     pose = kinematics.forward(state)
 
     inverse = kinematics.inverse(pose)
-    logging.getLogger(__name__).info(
+    logger.info(
         (
             "\n"
             + "[Inverse Kinematics]\n"

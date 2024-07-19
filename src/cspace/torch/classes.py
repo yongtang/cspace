@@ -13,17 +13,11 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
         self._orientation_ = torch.as_tensor(orientation, dtype=torch.float64)
         assert len(self.name) == self._orientation_.shape[-1]
 
-        @functools.cache
-        def f_index(self, name):
-            return self.name.index(name)
-
-        self._f_index_ = functools.partial(f_index, self)
-
     def position(self, name):
-        return torch.select(self._position_, dim=-1, index=self._f_index_(name))
+        return torch.select(self._position_, dim=-1, index=self.name.index(name))
 
     def orientation(self, name):
-        return torch.select(self._orientation_, dim=-1, index=self._f_index_(name))
+        return torch.select(self._orientation_, dim=-1, index=self.name.index(name))
 
     def transform(self, name):
         return Transform(
@@ -364,6 +358,4 @@ class Transform(cspace.cspace.classes.Transform):
 
 
 class Kinematics(cspace.cspace.classes.Kinematics):
-    @classmethod
-    def load(cls, file):
-        return torch.load(file)
+    pass

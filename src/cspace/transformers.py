@@ -1,8 +1,6 @@
 import cspace.cspace.classes
 import cspace.torch.classes
 import transformers
-import accelerate
-import logging
 import torch
 
 
@@ -196,11 +194,9 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
     def optimize(
         self, *, accelerator, dataloader, optimizer, scheduler, logger, epoch, save
     ):
-        epoch_total = epoch
-
         logger.info(
             "[Train] ----- Dataset: {} (epoch={}, batch={}) - creation".format(
-                len(dataloader.dataset), epoch_total, dataloader.batch_size
+                len(dataloader.dataset), epoch, dataloader.batch_size
             )
         )
 
@@ -209,7 +205,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         )
 
         model.train()
-        for epoch in range(epoch_total):
+        for index in range(epoch):
             total, count = 0, 0
             for batch, (data, pose, true) in enumerate(dataloader):
                 pred = model(data)
@@ -224,7 +220,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 count += len(pred)
                 logger.info(
                     "[Train] ----- Epoch {} [{}/{}] - Loss: {} [/Train]".format(
-                        epoch,
+                        index,
                         count,
                         len(dataloader.dataset),
                         total / count,
@@ -240,7 +236,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             )
         logger.info(
             "[Train] ----- Dataset: {} (epoch={}, batch={}) - complete".format(
-                len(dataloader.dataset), epoch_total, dataloader.batch_size
+                len(dataloader.dataset), epoch, dataloader.batch_size
             )
         )
 
@@ -267,13 +263,18 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         return self.loss_fn(pred_value, true_value)
 
     def train(
-        self, *, total=None, epoch=None, batch=None, noise=None, seed=None, save=None
+        self,
+        *,
+        logger,
+        dataset,
+        accelerator=None,
+        epoch=None,
+        batch=None,
+        save=None,
     ):
         epoch = epoch if epoch else 1
         batch_size = batch if batch else 128
-        entry_total = total if total else 1024
 
-        accelerator = accelerate.Accelerator()
         optimizer = torch.optim.AdamW(self.model.parameters())
         scheduler = torch.optim.lr_scheduler.ChainedScheduler(
             [
@@ -283,17 +284,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 ),
             ]
         )
-        logger = accelerate.logging.get_logger(__name__)
-        logger.setLevel(logging.INFO)
 
-        dataset = InverseDataset(
-            *self.rand(
-                logger=logger,
-                total=entry_total,
-                noise=noise,
-                seed=seed,
-            )
-        )
         dataloader = torch.utils.data.DataLoader(
             dataset,
             batch_size=batch_size,

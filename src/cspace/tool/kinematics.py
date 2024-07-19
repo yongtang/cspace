@@ -15,7 +15,9 @@ def main():
         format="%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    logging.getLogger(__name__).info(f"Args: {args}")
+    logger = logging.getLogger(__name__)
+
+    logger.info(f"Args: {args}")
 
     kinematics = cspace.transformers.InverseKinematics.load(args.load)
 
@@ -28,7 +30,7 @@ def main():
     pose = kinematics.forward(state)
 
     inverse = kinematics.inverse(pose)
-    logging.getLogger(__name__).info(
+    logger.info(
         (
             "\n" + "\n[Inverse Kinematics]" + "\n" + "\nPred: {}" + "\nTrue: {}" + "\n"
         ).format(
