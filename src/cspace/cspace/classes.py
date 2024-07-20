@@ -33,47 +33,9 @@ class LinkPoseCollection(abc.ABC):
     def transform(self, name):
         raise NotImplementedError
 
-    def delta(self, spec, other):
-        assert self.base == other.base
-        assert self.name == other.name
-
-        def f_joint(joint):
-            limit = math.sqrt(
-                joint.origin.xyz[0] * joint.origin.xyz[0]
-                + joint.origin.xyz[1] * joint.origin.xyz[1]
-                + joint.origin.xyz[2] * joint.origin.xyz[2]
-            )
-
-            limit = (
-                (limit + joint.motion.limit)
-                if joint.motion.call != "angular"
-                else (limit * 2.0)
-            )  # in angular limit (non exp/log) can double (2.0)
-
-            return limit * 2.0  # 2.0: + or - in exp/log map
-
-        def f_delta(spec, name, self, other):
-            limit = sum(map(f_joint, spec.joint))
-
-            transform = self.transform(name).inverse() * other.transform(name)
-
-            return self.scale(transform.log, limit)
-
-        return self.stack(tuple(f_delta(spec, name, self, other) for name in self.name))
-
     @property
     @abc.abstractmethod
     def batch(self):
-        raise NotImplementedError
-
-    @classmethod
-    @abc.abstractmethod
-    def stack(cls, value):
-        raise NotImplementedError
-
-    @classmethod
-    @abc.abstractmethod
-    def scale(cls, value, limit):
         raise NotImplementedError
 
 
@@ -147,11 +109,6 @@ class JointStateCollection(abc.ABC):
     @classmethod
     @abc.abstractmethod
     def zero(cls, spec, joint, batch=None):
-        raise NotImplementedError
-
-    @classmethod
-    @abc.abstractmethod
-    def stack(cls, collections):
         raise NotImplementedError
 
     @classmethod

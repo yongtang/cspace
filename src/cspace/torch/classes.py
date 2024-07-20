@@ -13,15 +13,11 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
         self._orientation_ = torch.as_tensor(orientation, dtype=torch.float64)
         assert len(self.name) == self._orientation_.shape[-1]
 
-    @functools.cache
-    def f_index(self, name):
-        return self.name.index(name)
-
     def position(self, name):
-        return torch.select(self._position_, dim=-1, index=self.f_index(name))
+        return torch.select(self._position_, dim=-1, index=self.index(name))
 
     def orientation(self, name):
-        return torch.select(self._orientation_, dim=-1, index=self.f_index(name))
+        return torch.select(self._orientation_, dim=-1, index=self.index(name))
 
     def transform(self, name):
         return Transform(
@@ -33,33 +29,9 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
     def batch(self):
         return tuple(self._position_.shape[:-2])
 
-    @classmethod
-    def stack(cls, value):
-        return torch.stack(value, dim=-1)
-
-    @classmethod
-    def scale(cls, value, limit):
-        assert value.shape[-1] == 6
-
-        linear = value[..., :3]
-        angular = value[..., 3:]
-
-        assert torch.all(-limit <= linear) and torch.all(
-            linear <= limit
-        ), "({}, {}) vs. ({}, {})".format(
-            torch.min(linear), torch.max(linear), -limit, limit
-        )
-        linear = torch.clip(linear, min=-limit, max=limit)
-        linear = (linear + limit) / (limit * 2.0)
-
-        angular = (angular + torch.pi) % (torch.pi * 2.0) - torch.pi
-        angular = torch.clip(angular, min=-torch.pi, max=torch.pi)
-        angular = (angular + torch.pi) / (torch.pi * 2.0)
-
-        value = torch.concatenate((linear, angular), dim=-1)
-        value = torch.clip(value, min=0.0, max=1.0)
-
-        return value
+    @functools.cache
+    def index(self, name):
+        return self.name.index(name)
 
 
 class JointStateCollection(cspace.cspace.classes.JointStateCollection):
@@ -67,10 +39,6 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         super().__init__(name=name)
         self._position_ = torch.as_tensor(position, dtype=torch.float64)
         assert len(self.name) == self._position_.shape[-1]
-
-    @functools.cache
-    def f_index(self, name):
-        return self.name.index(name)
 
     def position(self, spec, name):
 
@@ -81,7 +49,7 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
                 dtype=self._position_.dtype,
             )
         mimic = spec.mimic.get(name, None)
-        index = self.f_index(mimic.joint if mimic else name)
+        index = self.index(mimic.joint if mimic else name)
         value = torch.select(self._position_, dim=-1, index=index)
         return (value * mimic.multiplier + mimic.offset) if mimic else value
 
@@ -190,6 +158,10 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
             dim=-1,
         )
 
+    @functools.cache
+    def index(self, name):
+        return self.name.index(name)
+
     @property
     def batch(self):
         return tuple(self._position_.shape[:-1])
@@ -207,18 +179,6 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
                 dim=-1,
             ),
         )
-
-    @classmethod
-    def stack(cls, collections):
-        name = {collection.name for collection in collections}
-        assert len(name) == 1
-        name = next(iter(name))
-
-        position = torch.stack(
-            tuple(collection._position_ for collection in collections)
-        )
-
-        return cls(name=name, position=position)
 
     @classmethod
     def identity(cls):
