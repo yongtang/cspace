@@ -1,10 +1,7 @@
 import cspace.cspace.classes
 import cspace.torch.classes
 import transformers
-import itertools
 import functools
-import pathlib
-import numpy
 import torch
 
 
@@ -56,79 +53,28 @@ class Model(torch.nn.Module):
 
 
 class InverseDataset(torch.utils.data.Dataset):
-    def __init__(self, data, logger=None):
-
-        entries = list(sorted(pathlib.Path(data).glob("*")))
-        logger.info("[Dataset] - {} creation - {}".format(data, len(entries)))
-
-        def f_entry(index, file):
-            logger.info("[Dataset] - {} - {}".format(file, index))
-            saved = numpy.load(file)
-            data = saved["data"]
-            position = saved["position"]
-            name = tuple(saved["name"].tolist())
-            assert data.shape[0] == position.shape[0]
-            return file, data.shape[0], data.shape[1:], position.shape[1:], name
-
-        entries = list(f_entry(index, file) for index, file in enumerate(entries))
-
-        assert len({shape for _, _, shape, _, _ in entries}) == 1
-        assert len({shape for _, _, _, shape, _ in entries}) == 1
-
-        name = {name for _, _, _, _, name in entries}
-        assert len(name) == 1
-        self._name_ = next(iter(name))
-
-        entries = list((file, count) for file, count, _, _, _ in entries)
-
-        self._file_ = list(file for file, _ in entries)
-        self._count_ = list(count for _, count in entries)
-        self._indices_ = list(itertools.accumulate(self._count_, initial=0))
-
-        logger.info("[Dataset] - {} complete - {}".format(data, len(entries)))
+    def __init__(self, total, joint, link, noise=None, seed=None):
+        generator = torch.Generator().manual_seed(seed)
+        self.delta = torch.rand(
+            total, len(joint), generator=generator, dtype=torch.float64
+        )
+        if not noise:
+            self.noise = torch.zeros((total, len(link), 6), dtype=torch.float64)
+        else:
+            self.delta = self.delta.unsqueeze(0).expand(noise, -1, -1).flatten(0, 1)
+            std = torch.tensor(0.01, dtype=torch.float64).expand(
+                noise * total, len(link), 6
+            )
+            mean = torch.tensor(0.0, dtype=torch.float64).expand(
+                noise * total, len(link), 6
+            )
+            self.noise = torch.normal(mean, std, generator=generator)
 
     def __len__(self):
-        return self._indices_[-1]
+        return self.delta.shape[0]
 
     def __getitem__(self, key):
-        index, data, position = self._cached_(key)
-
-        key = key - self._indices_[index]
-
-        data = torch.as_tensor(data[key : key + 1, ...])
-        state = cspace.torch.classes.JointStateCollection(
-            name=self._name_,
-            position=torch.select(position, dim=0, index=key),
-        )
-        return data, state
-
-    @classmethod
-    def collate_fn(cls, entries):
-        data, state = list(zip(*entries))
-
-        info = {e.name for e in state}
-        assert len(info) == 1
-        name = next(iter(info))
-        position = torch.stack(tuple(e._position_ for e in state), dim=0)
-
-        state = cspace.torch.classes.JointStateCollection(
-            name=name,
-            position=position,
-        )
-
-        data = torch.concatenate(data, dim=0)
-
-        return data, state
-
-    @functools.lru_cache
-    def _cached_(self, key):
-        index = numpy.searchsorted(self._indices_, key) - 1
-        saved = numpy.load(self._file_[index])
-
-        data = torch.as_tensor(saved["data"])
-        position = torch.as_tensor(saved["position"])
-
-        return index, data, position
+        return (self.delta[key], self.noise[key])
 
 
 class InverseKinematics(cspace.torch.classes.Kinematics):
@@ -140,7 +86,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             self.bucket = bucket if bucket else 1000
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
-                (6 * len(self.link)) * self.bucket,
+                (6 * len(self.link)),
                 transformer.get_input_embeddings().embedding_dim,
                 dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
@@ -164,33 +110,31 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
             return state
 
-    def encode(self, pose, logger=None):
-        (
-            logger.info("[Encode] ----- Pose: {} creation".format(pose.batch))
-            if logger
-            else None
+    @functools.cache
+    def f_base(self, batch):
+        zero = cspace.torch.classes.JointStateCollection.zero(
+            self.spec, self.joint, batch=batch
         )
+        base = self.forward(zero)
+        return base
 
-        zero = self.forward(
-            cspace.torch.classes.JointStateCollection.zero(
-                self.spec, self.joint, pose.batch
-            )
+    def encode(self, pose, noise=None):
+
+        base = self.f_base(pose.batch)
+
+        value = torch.stack(
+            tuple(
+                (base.transform(name).inverse() * pose.transform(name)).log
+                for name in pose.name
+            ),
+            dim=-2,
         )
-        delta = zero.delta(self.spec, pose)
+        value = value if noise is None else value + noise
 
-        delta = torch.reshape(delta, pose.batch + tuple([-1]))
+        value = torch.flatten(value, 1, -1)
+        value = torch.unsqueeze(value, -2)
 
-        value = delta * (self.bucket - 1)
-        value = torch.clip(value.to(torch.int64), min=0, max=self.bucket - 1)
-        encoded = torch.nn.functional.one_hot(value, self.bucket)
-        encoded = torch.flatten(encoded, -2, -1)
-        encoded = torch.unsqueeze(encoded, -2)
-        (
-            logger.info("[Encode] ----- Pose: {} complete".format(pose.batch))
-            if logger
-            else None
-        )
-        return encoded
+        return value
 
     def decode(self, pred):
         batch = pred.shape[:-1]
@@ -253,7 +197,6 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         dataloader = torch.utils.data.DataLoader(
             dataset,
             batch_size=batch_size,
-            collate_fn=InverseDataset.collate_fn,
             shuffle=True,
         )
 
@@ -261,10 +204,17 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             dataloader, self.model, optimizer, scheduler
         )
 
+        zero = cspace.torch.classes.JointStateCollection.zero(
+            self.spec, self.joint, batch=[batch_size]
+        )
+
         model.train()
         for index in range(epoch):
             total, count = 0, 0
-            for batch, (data, true) in enumerate(dataloader):
+            for batch, (delta, noise) in enumerate(dataloader):
+                true = zero.apply(self.spec, delta)
+                pose = self.forward(true)
+                data = self.encode(pose, noise)
                 pred = model(data)
                 loss = self.loss(pred, true)
                 accelerator.backward(loss)
@@ -297,83 +247,6 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             )
         )
 
-    def rand(self, *, logger, save, total, noise, seed=None, std=0.01):
-        generator = torch.Generator().manual_seed(seed)
-        zero = cspace.torch.classes.JointStateCollection.zero(
-            self.spec, self.joint, batch=[total]
-        )
-        state = zero.apply(
-            self.spec,
-            torch.rand(
-                total, len(self.joint), generator=generator, dtype=torch.float64
-            ),
-        )
-        pose = self.forward(state)
-
-        if noise:
-            linear_shape = [noise] + list(pose.batch) + [3, len(pose.name)]
-
-            linear_std = torch.ones(linear_shape, dtype=torch.float64) * std
-            linear_mean = torch.zeros(linear_shape, dtype=torch.float64)
-
-            linear_noise = torch.normal(linear_mean, linear_std, generator=generator)
-
-            position = pose._position_
-            linear = position.expand(*linear_shape)
-            linear = linear + linear_noise
-            position = linear
-
-            angular_shape = [noise] + list(pose.batch) + [3, len(pose.name)]
-
-            angular_std = torch.ones(angular_shape, dtype=torch.float64) * std
-            angular_mean = torch.zeros(angular_shape, dtype=torch.float64)
-
-            angular_noise = torch.normal(angular_mean, angular_std, generator=generator)
-
-            orientation = pose._orientation_
-            angular = torch.transpose(
-                cspace.torch.ops.qua_to_rpy(torch.transpose(orientation, -2, -1)),
-                -2,
-                -1,
-            )
-            angular = angular + angular_noise
-            orientation = torch.transpose(
-                cspace.torch.ops.rpy_to_qua(torch.transpose(angular, -2, -1)), -2, -1
-            )
-
-            pose = cspace.torch.classes.LinkPoseCollection(
-                base=pose.base,
-                name=pose.name,
-                position=torch.flatten(position, 0, 1),
-                orientation=torch.flatten(orientation, 0, 1),
-            )
-
-            shape = [noise] + list(state.batch) + [len(state.name)]
-
-            position = state._position_
-            position = position.expand(*shape)
-
-            state = cspace.torch.classes.JointStateCollection(
-                name=state.name,
-                position=torch.flatten(position, 0, 1),
-            )
-
-        data = self.encode(pose, logger=logger)
-
-        pathlib.Path(save).mkdir(parents=True, exist_ok=True)
-
-        chunk = 1024
-
-        for index in range(0, total, chunk):
-            file = pathlib.Path(save).joinpath("{:08X}.npz".format(index))
-            logger.info("[Rand] - {} - {}".format(file, index))
-            numpy.savez_compressed(
-                file,
-                data=data[index : index + chunk, ...].numpy(),
-                position=state._position_[index : index + chunk, ...].numpy(),
-                name=numpy.array(state._name_),
-            )
-
 
 class PolicyKinematics(cspace.torch.classes.Kinematics):
     def __init__(self, description, *link, base=None, model=None):
@@ -381,7 +254,7 @@ class PolicyKinematics(cspace.torch.classes.Kinematics):
         if model:
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
-                (6 * len(self.link)) * self.bucket,
+                (6 * len(self.link)),
                 transformer.get_input_embeddings().embedding_dim,
                 dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
@@ -405,7 +278,7 @@ class PolicyKinematics(cspace.torch.classes.Kinematics):
 
             return state
 
-    def encode(self, state, observation, logger=None):
+    def encode(self, state, observation):
         raise NotImplementedError
 
     def decode(self, pred):

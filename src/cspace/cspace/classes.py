@@ -309,7 +309,6 @@ class JointCollection(tuple):
 
     @functools.cache
     def index(self, name):
-        @functools.cache
         def f_name(self):
             return list(item.name for item in self)
 
@@ -511,27 +510,28 @@ class Spec:
             object.__setattr__(self, "chain", chain)
             object.__setattr__(self, "mimic", mimic)
 
+    @functools.lru_cache
+    def f_route(self, source, target):
+        source_chain = tuple(
+            reversed(next(filter(lambda item: item[-1] == source, self.chain)))
+        )
+        target_chain = next(filter(lambda item: item[-1] == target, self.chain))[1:]
+        return source_chain + target_chain
+
+    @functools.lru_cache
+    def f_lookup(self, source, target):
+        for item in self.joint:
+            if item.parent == source and item.child == target:
+                return (item.name, False)
+            elif item.parent == target and item.child == source:
+                return (item.name, True)
+
     @functools.cache
     def route(self, source, target=None):
-        @functools.lru_cache
-        def f_route(chain, source, target):
-            source_chain = tuple(
-                reversed(next(filter(lambda item: item[-1] == source, chain)))
-            )
-            target_chain = next(filter(lambda item: item[-1] == target, chain))[1:]
-            return source_chain + target_chain
-
-        @functools.lru_cache
-        def f_lookup(joint, source, target):
-            for item in joint:
-                if item.parent == source and item.child == target:
-                    return (item.name, False)
-                elif item.parent == target and item.child == source:
-                    return (item.name, True)
 
         target = target if target else self.base
 
-        route_chain = f_route(self.chain, source, target)
+        route_chain = self.f_route(source, target)
 
         route_forward = route_chain[: route_chain.index(target) + 1]
         route_inverse = route_chain[
@@ -542,7 +542,7 @@ class Spec:
         )
 
         return [
-            f_lookup(self.joint, route_final[i - 1], route_final[i])
+            self.f_lookup(route_final[i - 1], route_final[i])
             for i in range(1, len(route_final))
         ]
 

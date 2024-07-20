@@ -7,7 +7,7 @@ import pathlib
 import torch
 
 
-def test_inverse_kinematics(
+def test_kinematics_forward(
     device, urdf_file_tutorial, joint_state_tutorial, link_pose_tutorial
 ):
     kinematics = cspace.transformers.InverseKinematics(
@@ -62,7 +62,7 @@ def test_inverse_kinematics(
         pytest.param("gpt2", 12345, 8, 2, None, 5),
     ],
 )
-def test_inverse_kinematics_train(
+def test_kinematics_inverse(
     device,
     urdf_file_tutorial,
     joint_state_tutorial,
@@ -76,11 +76,7 @@ def test_inverse_kinematics_train(
     request,
     tmp_path_factory,
 ):
-    saved_data = pathlib.Path.joinpath(
-        tmp_path_factory.mktemp("model"),
-        f"{request.node.name}-{request.node.callspec.id}.npy",
-    )
-    saved_model = pathlib.Path.joinpath(
+    saved = pathlib.Path.joinpath(
         tmp_path_factory.mktemp("model"),
         f"{request.node.name}-{request.node.callspec.id}.pth",
     )
@@ -91,20 +87,11 @@ def test_inverse_kinematics_train(
     kinematics = cspace.transformers.InverseKinematics(
         pathlib.Path(urdf_file_tutorial).read_text(), "left_gripper", model=model
     )
-    kinematics.rand(
-        logger=logger,
-        save=saved_data,
-        total=total,
-        noise=noise,
-        seed=seed,
-    )
-    torch.save(kinematics, saved_model)
-    logger.info(f"Model save {saved_model}")
-
-    kinematics = torch.load(saved_model)
 
     with accelerator.main_process_first():
-        dataset = cspace.transformers.InverseDataset(data=saved_data, logger=logger)
+        dataset = cspace.transformers.InverseDataset(
+            total, kinematics.joint, kinematics.link, noise=noise, seed=seed
+        )
 
     kinematics.train(
         logger=logger,
@@ -112,10 +99,10 @@ def test_inverse_kinematics_train(
         dataset=dataset,
         batch=batch,
         epoch=epoch,
-        save=saved_model,
+        save=saved,
     )
 
-    kinematics = torch.load(saved_model)
+    kinematics = torch.load(saved)
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)

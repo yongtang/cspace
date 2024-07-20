@@ -13,17 +13,15 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
         self._orientation_ = torch.as_tensor(orientation, dtype=torch.float64)
         assert len(self.name) == self._orientation_.shape[-1]
 
-        @functools.cache
-        def f_index(self, name):
-            return self.name.index(name)
-
-        self._f_index_ = functools.partial(f_index, self)
+    @functools.cache
+    def f_index(self, name):
+        return self.name.index(name)
 
     def position(self, name):
-        return torch.select(self._position_, dim=-1, index=self._f_index_(name))
+        return torch.select(self._position_, dim=-1, index=self.f_index(name))
 
     def orientation(self, name):
-        return torch.select(self._orientation_, dim=-1, index=self._f_index_(name))
+        return torch.select(self._orientation_, dim=-1, index=self.f_index(name))
 
     def transform(self, name):
         return Transform(
@@ -70,10 +68,11 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         self._position_ = torch.as_tensor(position, dtype=torch.float64)
         assert len(self.name) == self._position_.shape[-1]
 
+    @functools.cache
+    def f_index(self, name):
+        return self.name.index(name)
+
     def position(self, spec, name):
-        @functools.cache
-        def f_index(self, name):
-            return self.name.index(name)
 
         if not spec.joint(name).motion.call:  # fixed
             return torch.empty(
@@ -82,7 +81,7 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
                 dtype=self._position_.dtype,
             )
         mimic = spec.mimic.get(name, None)
-        index = f_index(self, mimic.joint if mimic else name)
+        index = self.f_index(mimic.joint if mimic else name)
         value = torch.select(self._position_, dim=-1, index=index)
         return (value * mimic.multiplier + mimic.offset) if mimic else value
 

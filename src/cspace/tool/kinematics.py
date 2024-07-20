@@ -26,28 +26,27 @@ def main():
         dest="mode",
         type=str,
         default="check",
-        choices=["check", "build", "train"],
+        choices=["check", "train"],
     )
     mode = parser.parse_known_args()[0].mode
 
     if mode == "check":
         parser.add_argument("--load", dest="load", type=str, required=True)
         parser.add_argument("--joint", dest="joint", type=str, nargs="+", required=True)
-    elif mode == "build":
-        parser.add_argument("--data", dest="data", type=str, required=True)
-        parser.add_argument("--model", dest="model", type=str, required=True)
-        parser.add_argument("--total", dest="total", type=int, required=True)
-        parser.add_argument("--urdf", dest="urdf", type=str, required=True)
-        parser.add_argument("--link", dest="link", type=str, nargs="+", default=[])
-        parser.add_argument("--seed", dest="seed", type=int, default=0)
-        parser.add_argument("--noise", dest="noise", type=int, default=None)
-        parser.add_argument("--bucket", dest="bucket", type=int, default=None)
     else:
-        parser.add_argument("--data", dest="data", type=str, required=True)
-        parser.add_argument("--model", dest="model", type=str, required=True)
+        parser.add_argument("--load", dest="load", type=str, default=None)
         parser.add_argument("--save", dest="save", type=str, required=True)
+        parser.add_argument("--total", dest="total", type=int, required=True)
         parser.add_argument("--batch", dest="batch", type=int, default=16)
         parser.add_argument("--epoch", dest="epoch", type=int, default=5)
+        parser.add_argument("--noise", dest="noise", type=int, default=None)
+        parser.add_argument("--seed", dest="seed", type=int, default=0)
+        load = parser.parse_known_args()[0].load
+
+        if not load:
+            parser.add_argument("--urdf", dest="urdf", type=str, required=True)
+            parser.add_argument("--link", dest="link", type=str, nargs="+", default=[])
+            parser.add_argument("--bucket", dest="bucket", type=int, default=None)
 
     args = parser.parse_args()
 
@@ -95,27 +94,25 @@ def main():
                 ),
             )
         )
-    elif mode == "build":
-        with accelerator.main_process_first():
-            kinematics = cspace.transformers.InverseKinematics(
+    else:
+        kinematics = (
+            torch.load(args.load)
+            if args.load
+            else cspace.transformers.InverseKinematics(
                 pathlib.Path(args.urdf).read_text(),
                 *args.link,
                 model="gpt2",
                 bucket=args.bucket,
             )
-            kinematics.rand(
-                logger=logger,
-                save=args.data,
-                total=args.total,
+        )
+        with accelerator.main_process_first():
+            dataset = cspace.transformers.InverseDataset(
+                args.total,
+                kinematics.joint,
+                kinematics.link,
                 noise=args.noise,
                 seed=args.seed,
             )
-            torch.save(kinematics, args.model)
-    else:
-        kinematics = torch.load(args.model)
-
-        with accelerator.main_process_first():
-            dataset = cspace.transformers.InverseDataset(data=args.data, logger=logger)
 
         kinematics.train(
             logger=logger,
