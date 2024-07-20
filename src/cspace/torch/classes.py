@@ -101,7 +101,7 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         def f_apply(joint, value, delta):
             delta_scale = torch.clip(delta, min=0.0, max=1.0)
 
-            self_value = value
+            self_value = value.to(delta_scale.device)
             self_value = (
                 self.angle(self_value, joint.motion.zero, joint.motion.limit)
                 if joint.motion.call == "angular"
@@ -149,21 +149,6 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         def f_delta(spec, name, self, other):
             joint = spec.joint(name)
 
-            self_value = self.position(spec, name)
-            self_value = (
-                self.angle(self_value, joint.motion.zero, joint.motion.limit)
-                if joint.motion.call == "angular"
-                else self_value
-            )
-            self_value = torch.clip(
-                self_value,
-                min=joint.motion.zero - joint.motion.limit,
-                max=joint.motion.zero + joint.motion.limit,
-            )
-            self_scale = (self_value - (joint.motion.zero - joint.motion.limit)) / (
-                joint.motion.limit * 2.0
-            )
-
             other_value = other.position(spec, name)
             other_value = (
                 self.angle(other_value, joint.motion.zero, joint.motion.limit)
@@ -176,6 +161,21 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
                 max=joint.motion.zero + joint.motion.limit,
             )
             other_scale = (other_value - (joint.motion.zero - joint.motion.limit)) / (
+                joint.motion.limit * 2.0
+            )
+
+            self_value = self.position(spec, name).to(other_scale.device)
+            self_value = (
+                self.angle(self_value, joint.motion.zero, joint.motion.limit)
+                if joint.motion.call == "angular"
+                else self_value
+            )
+            self_value = torch.clip(
+                self_value,
+                min=joint.motion.zero - joint.motion.limit,
+                max=joint.motion.zero + joint.motion.limit,
+            )
+            self_scale = (self_value - (joint.motion.zero - joint.motion.limit)) / (
                 joint.motion.limit * 2.0
             )
 
