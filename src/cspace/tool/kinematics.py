@@ -36,18 +36,18 @@ def main():
     elif mode == "build":
         parser.add_argument("--data", dest="data", type=str, required=True)
         parser.add_argument("--model", dest="model", type=str, required=True)
+        parser.add_argument("--total", dest="total", type=int, required=True)
         parser.add_argument("--urdf", dest="urdf", type=str, required=True)
         parser.add_argument("--link", dest="link", type=str, nargs="+", default=[])
         parser.add_argument("--seed", dest="seed", type=int, default=0)
         parser.add_argument("--noise", dest="noise", type=int, default=None)
-        parser.add_argument("--total", dest="total", type=int, default=1024)
         parser.add_argument("--bucket", dest="bucket", type=int, default=None)
     else:
         parser.add_argument("--data", dest="data", type=str, required=True)
         parser.add_argument("--model", dest="model", type=str, required=True)
+        parser.add_argument("--save", dest="save", type=str, required=True)
         parser.add_argument("--batch", dest="batch", type=int, default=16)
         parser.add_argument("--epoch", dest="epoch", type=int, default=5)
-        parser.add_argument("--save", dest="save", type=str, default=None)
 
     args = parser.parse_args()
 

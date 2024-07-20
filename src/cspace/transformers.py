@@ -58,10 +58,11 @@ class Model(torch.nn.Module):
 class InverseDataset(torch.utils.data.Dataset):
     def __init__(self, data, logger=None):
 
-        logger.info("[Dataset] - {} creation".format(data))
+        entries = list(sorted(pathlib.Path(data).glob("*")))
+        logger.info("[Dataset] - {} creation - {}".format(data, len(entries)))
 
-        def f_entry(file):
-            logger.info("[Dataset] - {}".format(file))
+        def f_entry(index, file):
+            logger.info("[Dataset] - {} - {}".format(file, index))
             saved = numpy.load(file)
             data = saved["data"]
             position = saved["position"]
@@ -69,7 +70,7 @@ class InverseDataset(torch.utils.data.Dataset):
             assert data.shape[0] == position.shape[0]
             return file, data.shape[0], data.shape[1:], position.shape[1:], name
 
-        entries = list(f_entry(file) for file in pathlib.Path(data).glob("*"))
+        entries = list(f_entry(index, file) for index, file in enumerate(entries))
 
         assert len({shape for _, _, shape, _, _ in entries}) == 1
         assert len({shape for _, _, _, shape, _ in entries}) == 1
@@ -84,7 +85,7 @@ class InverseDataset(torch.utils.data.Dataset):
         self._count_ = list(count for _, count in entries)
         self._indices_ = list(itertools.accumulate(self._count_, initial=0))
 
-        logger.info("[Dataset] - {} complete".format(data))
+        logger.info("[Dataset] - {} complete - {}".format(data, len(entries)))
 
     def __len__(self):
         return self._indices_[-1]
