@@ -1,8 +1,10 @@
 import cspace.cspace.classes
 import cspace.torch.classes
 import transformers
-import accelerate
-import logging
+import itertools
+import functools
+import pathlib
+import numpy
 import torch
 
 
@@ -54,51 +56,54 @@ class Model(torch.nn.Module):
 
 
 class InverseDataset(torch.utils.data.Dataset):
-    def __init__(self, data, pose, state):
-        assert isinstance(pose, cspace.torch.classes.LinkPoseCollection)
-        assert len(pose.batch) == 1
-        assert isinstance(state, cspace.torch.classes.JointStateCollection)
-        assert len(state.batch) == 1
-        assert pose.batch == state.batch
-        assert data.shape[:-2] == pose.batch
+    def __init__(self, data, logger=None):
 
-        self._data_ = data
-        self._pose_ = pose
-        self._state_ = state
+        logger.info("[Dataset] - {} creation".format(data))
+
+        def f_entry(file):
+            logger.info("[Dataset] - {}".format(file))
+            saved = numpy.load(file)
+            data = saved["data"]
+            position = saved["position"]
+            name = tuple(saved["name"].tolist())
+            assert data.shape[0] == position.shape[0]
+            return file, data.shape[0], data.shape[1:], position.shape[1:], name
+
+        entries = list(f_entry(file) for file in pathlib.Path(data).glob("*"))
+
+        assert len({shape for _, _, shape, _, _ in entries}) == 1
+        assert len({shape for _, _, _, shape, _ in entries}) == 1
+
+        name = {name for _, _, _, _, name in entries}
+        assert len(name) == 1
+        self._name_ = next(iter(name))
+
+        entries = list((file, count) for file, count, _, _, _ in entries)
+
+        self._file_ = list(file for file, _ in entries)
+        self._count_ = list(count for _, count in entries)
+        self._indices_ = list(itertools.accumulate(self._count_, initial=0))
+
+        logger.info("[Dataset] - {} complete".format(data))
 
     def __len__(self):
-        return self._pose_.batch[0]
+        return self._indices_[-1]
 
     def __getitem__(self, key):
-        data = self._data_[key : key + 1, ...]
-        pose = cspace.torch.classes.LinkPoseCollection(
-            base=self._pose_.base,
-            name=self._pose_.name,
-            position=torch.select(self._pose_._position_, dim=0, index=key),
-            orientation=torch.select(self._pose_._orientation_, dim=0, index=key),
-        )
+        index, data, position = self._cached_(key)
+
+        key = key - self._indices_[index]
+
+        data = torch.as_tensor(data[key : key + 1, ...])
         state = cspace.torch.classes.JointStateCollection(
-            name=self._state_.name,
-            position=torch.select(self._state_._position_, dim=0, index=key),
+            name=self._name_,
+            position=torch.select(position, dim=0, index=key),
         )
-        return data, pose, state
+        return data, state
 
     @classmethod
     def collate_fn(cls, entries):
-        data, pose, state = list(zip(*entries))
-
-        info = {(e.base, e.name) for e in pose}
-        assert len(info) == 1
-        base, name = next(iter(info))
-        position = torch.stack(tuple(e._position_ for e in pose), dim=0)
-        orientation = torch.stack(tuple(e._orientation_ for e in pose), dim=0)
-
-        pose = cspace.torch.classes.LinkPoseCollection(
-            base=base,
-            name=name,
-            position=position,
-            orientation=orientation,
-        )
+        data, state = list(zip(*entries))
 
         info = {e.name for e in state}
         assert len(info) == 1
@@ -112,7 +117,17 @@ class InverseDataset(torch.utils.data.Dataset):
 
         data = torch.concatenate(data, dim=0)
 
-        return data, pose, state
+        return data, state
+
+    @functools.lru_cache
+    def _cached_(self, key):
+        index = numpy.searchsorted(self._indices_, key) - 1
+        saved = numpy.load(self._file_[index])
+
+        data = torch.as_tensor(saved["data"])
+        position = torch.as_tensor(saved["position"])
+
+        return index, data, position
 
 
 class InverseKinematics(cspace.torch.classes.Kinematics):
@@ -193,59 +208,8 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
         return state
 
-    def optimize(
-        self, *, accelerator, dataloader, optimizer, scheduler, logger, epoch, save
-    ):
-        epoch_total = epoch
-
-        logger.info(
-            "[Train] ----- Dataset: {} (epoch={}, batch={}) - creation".format(
-                len(dataloader.dataset), epoch_total, dataloader.batch_size
-            )
-        )
-
-        dataloader, model, optimizer, scheduler = accelerator.prepare(
-            dataloader, self.model, optimizer, scheduler
-        )
-
-        model.train()
-        for epoch in range(epoch_total):
-            total, count = 0, 0
-            for batch, (data, pose, true) in enumerate(dataloader):
-                pred = model(data)
-                loss = self.loss(pred, true)
-                accelerator.backward(loss)
-                optimizer.step()
-                scheduler.step()
-                optimizer.zero_grad()
-                loss = accelerator.gather_for_metrics(loss)
-                pred = accelerator.gather_for_metrics(pred)
-                total += loss.sum().item()
-                count += len(pred)
-                logger.info(
-                    "[Train] ----- Epoch {} [{}/{}] - Loss: {} [/Train]".format(
-                        epoch,
-                        count,
-                        len(dataloader.dataset),
-                        total / count,
-                    )
-                )
-            (
-                accelerator.save(
-                    self,
-                    save,
-                )
-                if save
-                else None
-            )
-        logger.info(
-            "[Train] ----- Dataset: {} (epoch={}, batch={}) - complete".format(
-                len(dataloader.dataset), epoch_total, dataloader.batch_size
-            )
-        )
-
     def loss(self, pred, true):
-        assert true.batch == pred.shape[:-1]
+        assert true.batch == pred.shape[:-1], "{} vs. {}".format(true.batch, pred.shape)
 
         pred_value = torch.unflatten(pred, -1, (-1, self.bucket))
         assert pred_value.shape[-2:] == torch.Size([1 * len(self.joint), self.bucket])
@@ -266,14 +230,10 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         true_value = torch.clip(true_value.to(torch.int64), min=0, max=self.bucket - 1)
         return self.loss_fn(pred_value, true_value)
 
-    def train(
-        self, *, total=None, epoch=None, batch=None, noise=None, seed=None, save=None
-    ):
+    def train(self, *, logger, accelerator, dataset, batch=None, epoch=None, save=None):
         epoch = epoch if epoch else 1
         batch_size = batch if batch else 128
-        entry_total = total if total else 1024
 
-        accelerator = accelerate.Accelerator()
         optimizer = torch.optim.AdamW(self.model.parameters())
         scheduler = torch.optim.lr_scheduler.ChainedScheduler(
             [
@@ -283,15 +243,10 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 ),
             ]
         )
-        logger = accelerate.logging.get_logger(__name__)
-        logger.setLevel(logging.INFO)
 
-        dataset = InverseDataset(
-            *self.rand(
-                logger=logger,
-                total=entry_total,
-                noise=noise,
-                seed=seed,
+        logger.info(
+            "[Train] ----- Dataset: {} (epoch={}, batch={}) - creation".format(
+                len(dataset), epoch, batch_size
             )
         )
         dataloader = torch.utils.data.DataLoader(
@@ -301,17 +256,47 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             shuffle=True,
         )
 
-        self.optimize(
-            accelerator=accelerator,
-            dataloader=dataloader,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            logger=logger,
-            epoch=epoch,
-            save=save,
+        dataloader, model, optimizer, scheduler = accelerator.prepare(
+            dataloader, self.model, optimizer, scheduler
         )
 
-    def rand(self, *, logger, total, noise, seed=None, std=0.01):
+        model.train()
+        for index in range(epoch):
+            total, count = 0, 0
+            for batch, (data, true) in enumerate(dataloader):
+                pred = model(data)
+                loss = self.loss(pred, true)
+                accelerator.backward(loss)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+                loss = accelerator.gather_for_metrics(loss)
+                pred = accelerator.gather_for_metrics(pred)
+                total += loss.sum().item()
+                count += len(pred)
+                logger.info(
+                    "[Train] ----- Epoch {} [{}/{}] - Loss: {} [/Train]".format(
+                        index,
+                        count,
+                        len(dataloader.dataset),
+                        total / count,
+                    )
+                )
+            (
+                accelerator.save(
+                    self,
+                    save,
+                )
+                if save
+                else None
+            )
+        logger.info(
+            "[Train] ----- Dataset: {} (epoch={}, batch={}) - complete".format(
+                len(dataloader.dataset), epoch, dataloader.batch_size
+            )
+        )
+
+    def rand(self, *, logger, save, total, noise, seed=None, std=0.01):
         generator = torch.Generator().manual_seed(seed)
         zero = cspace.torch.classes.JointStateCollection.zero(
             self.spec, self.joint, batch=[total]
@@ -371,8 +356,22 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 name=state.name,
                 position=torch.flatten(position, 0, 1),
             )
+
         data = self.encode(pose, logger=logger)
-        return data, pose, state
+
+        pathlib.Path(save).mkdir(parents=True, exist_ok=True)
+
+        chunk = 1024
+
+        for index in range(0, total, chunk):
+            file = pathlib.Path(save).joinpath("{:08X}.npz".format(index))
+            logger.info("[Rand] - {} - {}".format(file, index))
+            numpy.savez_compressed(
+                file,
+                data=data[index : index + chunk, ...].numpy(),
+                position=state._position_[index : index + chunk, ...].numpy(),
+                name=numpy.array(state._name_),
+            )
 
 
 class PolicyKinematics(cspace.torch.classes.Kinematics):

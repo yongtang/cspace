@@ -364,6 +364,4 @@ class Transform(cspace.cspace.classes.Transform):
 
 
 class Kinematics(cspace.cspace.classes.Kinematics):
-    @classmethod
-    def load(cls, file):
-        return torch.load(file)
+    pass

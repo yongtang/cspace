@@ -2,8 +2,8 @@ import pytest
 
 import cspace.transformers
 
+import accelerate
 import pathlib
-import logging
 import torch
 
 
@@ -76,20 +76,46 @@ def test_inverse_kinematics_train(
     request,
     tmp_path_factory,
 ):
-    saved = pathlib.Path.joinpath(
+    saved_data = pathlib.Path.joinpath(
+        tmp_path_factory.mktemp("model"),
+        f"{request.node.name}-{request.node.callspec.id}.npy",
+    )
+    saved_model = pathlib.Path.joinpath(
         tmp_path_factory.mktemp("model"),
         f"{request.node.name}-{request.node.callspec.id}.pth",
     )
 
+    accelerator = accelerate.Accelerator()
+    logger = accelerate.logging.get_logger(__name__)
+
     kinematics = cspace.transformers.InverseKinematics(
         pathlib.Path(urdf_file_tutorial).read_text(), "left_gripper", model=model
     )
-    kinematics.train(
-        seed=seed, total=total, batch=batch, noise=noise, epoch=epoch, save=saved
+    kinematics.rand(
+        logger=logger,
+        save=saved_data,
+        total=total,
+        noise=noise,
+        seed=seed,
     )
-    logging.getLogger(__name__).info(f"Model save {saved}")
+    torch.save(kinematics, saved_model)
+    logger.info(f"Model save {saved_model}")
 
-    kinematics = cspace.transformers.InverseKinematics.load(saved)
+    kinematics = torch.load(saved_model)
+
+    with accelerator.main_process_first():
+        dataset = cspace.transformers.InverseDataset(data=saved_data, logger=logger)
+
+    kinematics.train(
+        logger=logger,
+        accelerator=accelerator,
+        dataset=dataset,
+        batch=batch,
+        epoch=epoch,
+        save=saved_model,
+    )
+
+    kinematics = torch.load(saved_model)
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
@@ -101,7 +127,7 @@ def test_inverse_kinematics_train(
     pose = kinematics.forward(state)
 
     inverse = kinematics.inverse(pose)
-    logging.getLogger(__name__).info(
+    logger.info(
         (
             "\n"
             + "[Inverse Kinematics]\n"
