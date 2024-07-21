@@ -56,9 +56,9 @@ def test_kinematics_forward(
     "model,seed,total,batch,basis,noise,epoch",
     [
         pytest.param(
-            "gpt2", 12345, 8 * 1024 * 1024, 32 * 1024, 2, 2, 5, marks=pytest.mark.full
+            "gpt2", 12345, 8 * 1024 * 1024, 32 * 1024, 3, 2, 5, marks=pytest.mark.full
         ),
-        pytest.param("gpt2", 12345, 8, 2, 2, 2, 5),
+        pytest.param("gpt2", 12345, 8, 2, 3, 2, 5),
         pytest.param("gpt2", 12345, 8, 2, None, None, 5),
     ],
 )

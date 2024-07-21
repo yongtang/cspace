@@ -106,12 +106,13 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             self.model = Model(transformer, input_embeddings, output_embeddings)
 
             space = torch.linspace(-1.0, 1.0, basis + 1)
-            entries = torch.sum(
-                torch.stack((space[1:], space[:-1]), dim=0), dim=0
-            ).expand(basis, len(self.joint))
+            entries = torch.sum(torch.stack((space[1:], space[:-1]), dim=0), dim=0)
+
+            shape = [len(self.joint)]
             zero = cspace.torch.classes.JointStateCollection.zero(self.spec, self.joint)
             self.basis = tuple(
-                self.forward(zero.apply(self.spec, entry)) for entry in entries
+                self.forward(zero.apply(self.spec, entry.expand(*shape)))
+                for entry in entries
             )
 
     def inverse(self, pose):
