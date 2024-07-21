@@ -78,17 +78,33 @@ def main():
 
             inverse = kinematics.inverse(pose)
             pred = kinematics.forward(inverse)
+
+            zero = cspace.torch.classes.JointStateCollection.zero(
+                kinematics.spec, kinematics.joint
+            )
+            zerop = kinematics.forward(zero)
         logger.info(
             (
                 "\n"
                 + "\n[Inverse Kinematics]"
                 + "\n"
+                + "\nZero: {}"
+                + "\nZero/Pose: {}"
+                + "\n"
                 + "\nPred: {}"
                 + "\nPred/Pose: {}"
+                + "\n"
                 + "\nTrue: {}"
                 + "\nTrue/Pose: {}"
                 + "\n"
             ).format(
+                list(
+                    (name, zero.position(kinematics.spec, name)) for name in zero.name
+                ),
+                list(
+                    (name, zerop.position(name), zerop.orientation(name))
+                    for name in zerop.name
+                ),
                 list(
                     (name, inverse.position(kinematics.spec, name))
                     for name in inverse.name
