@@ -101,7 +101,11 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
     def inverse(self, pose):
         with torch.no_grad():
-            zero = cspace.torch.classes.JointStateCollection.zero(self.spec, self.joint)
+            zero = cspace.torch.classes.JointStateCollection.zero(
+                self.spec,
+                self.joint,
+            )
+
             data = self.encode(zero, pose)
 
             pred = self.model(data)
@@ -112,7 +116,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
     def train(self, *, logger, accelerator, dataset, batch=None, epoch=None, save=None):
         epoch = epoch if epoch else 1
-        batch_size = batch if batch else 128
+        batch = batch if batch else 128
 
         optimizer = torch.optim.AdamW(self.model.parameters())
         scheduler = torch.optim.lr_scheduler.ChainedScheduler(
@@ -126,12 +130,12 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
         logger.info(
             "[Train] ----- Dataset: {} (epoch={}, batch={}) - creation".format(
-                len(dataset), epoch, batch_size
+                len(dataset), epoch, batch
             )
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
-            batch_size=batch_size,
+            batch_size=batch,
             shuffle=True,
         )
 
@@ -140,7 +144,9 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         )
 
         zero = cspace.torch.classes.JointStateCollection.zero(
-            self.spec, self.joint, batch=[batch_size]
+            self.spec,
+            self.joint,
+            batch=[batch],
         )
 
         model.train()

@@ -127,7 +127,7 @@ def test_kinematics_inverse(
             "\n"
             + "[Inverse Kinematics]\n"
             + "\n"
-            + "Zeroe: {}\n"
+            + "Zero: {}\n"
             + "Pose: [position]    {}\n"
             + "      [orientation] {}\n"
             + "\n"
@@ -140,16 +140,29 @@ def test_kinematics_inverse(
             + "      [orientation] {}\n"
             + "\n"
         ).format(
-            list((name, zero.position(kinematics.spec, name)) for name in zero.name),
-            list((name, mark.position(name)) for name in mark.name),
-            list((name, mark.orientation(name)) for name in mark.name),
-            list((name, state.position(kinematics.spec, name)) for name in state.name),
-            list((name, pose.position(name)) for name in pose.name),
-            list((name, pose.orientation(name)) for name in pose.name),
             list(
-                (name, inverse.position(kinematics.spec, name)) for name in inverse.name
+                (name, zero.position(kinematics.spec, name).data.cpu().numpy())
+                for name in zero.name
             ),
-            list((name, pred.position(name)) for name in pred.name),
-            list((name, pred.orientation(name)) for name in pred.name),
+            list((name, mark.position(name).data.cpu().numpy()) for name in mark.name),
+            list(
+                (name, mark.orientation(name).data.cpu().numpy()) for name in mark.name
+            ),
+            list(
+                (name, state.position(kinematics.spec, name).data.cpu().numpy())
+                for name in state.name
+            ),
+            list((name, pose.position(name).data.cpu().numpy()) for name in pose.name),
+            list(
+                (name, pose.orientation(name).data.cpu().numpy()) for name in pose.name
+            ),
+            list(
+                (name, inverse.position(kinematics.spec, name).data.cpu().numpy())
+                for name in inverse.name
+            ),
+            list((name, pred.position(name).data.cpu().numpy()) for name in pred.name),
+            list(
+                (name, pred.orientation(name).data.cpu().numpy()) for name in pred.name
+            ),
         )
     )
