@@ -58,16 +58,25 @@ class InverseDataset(torch.utils.data.Dataset):
             total, len(joint), generator=generator, dtype=torch.float64
         )
         if not noise:
-            self.noise = torch.zeros((total, len(link), 6), dtype=torch.float64)
+            self.noise = torch.zeros(
+                (total, len(link) + len(joint), 6), dtype=torch.float64
+            )
         else:
             self.delta = self.delta.unsqueeze(0).expand(noise, -1, -1).flatten(0, 1)
+
             std = torch.tensor(0.01, dtype=torch.float64).expand(
                 noise * total, len(link), 6
             )
             mean = torch.tensor(0.0, dtype=torch.float64).expand(
                 noise * total, len(link), 6
             )
-            self.noise = torch.normal(mean, std, generator=generator)
+            self.noise = torch.concatenate(
+                (
+                    torch.normal(mean, std, generator=generator),
+                    torch.zeros((noise * total, len(joint), 6), dtype=torch.float64),
+                ),
+                dim=-2,
+            )
 
     def __len__(self):
         return self.delta.shape[0]
@@ -85,7 +94,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             self.bucket = bucket if bucket else 1000
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
-                (len(self.link) * 6),
+                ((len(self.link) + len(self.joint)) * 6),
                 transformer.get_input_embeddings().embedding_dim,
                 dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
@@ -104,6 +113,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             zero = cspace.torch.classes.JointStateCollection.zero(
                 self.spec,
                 self.joint,
+                batch=[1],
             )
 
             data = self.encode(zero, pose)
@@ -190,15 +200,17 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
     def encode(self, state, pose, noise=None):
         mark = self.forward(state)
-        value = torch.stack(
-            tuple(
-                (mark.transform(name).inverse() * pose.transform(name)).log
-                for name in pose.name
-            ),
-            dim=-2,
-        )
+        value = tuple(
+            (mark.transform(name).inverse() * pose.transform(name)).log
+            for name in pose.name
+        ) + tuple(state.joint(self.spec, name).log for name in self.joint)
 
-        value = value if noise is None else value + noise
+        device = next(iter(value)).device
+
+        value = tuple(entry.to(device) for entry in value)
+        value = torch.stack(value, dim=-2)
+
+        value = value if noise is None else value + noise.to(device)
 
         value = torch.flatten(value, 1, -1)
         value = torch.unsqueeze(value, -2)
