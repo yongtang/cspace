@@ -55,32 +55,33 @@ class JointStateCollection(abc.ABC):
     def forward(self, spec, *link, base=None):
         raise NotImplementedError
 
-    def transform(self, spec, link, base):
-        def f_joint(spec, name):
-            joint = spec.joint(name)
-            origin = self.origin(
+    @functools.lru_cache
+    def joint(self, spec, name):
+        lookup = spec.joint(name)
+        origin = self.origin(
+            self.position(spec, name),
+            lookup.origin.xyz,
+            lookup.origin.rpy,
+        )
+        if lookup.motion.call == "":
+            return origin
+        elif lookup.motion.call == "linear":
+            return origin * self.linear(
                 self.position(spec, name),
-                joint.origin.xyz,
-                joint.origin.rpy,
+                lookup.motion.sign,
+                lookup.motion.axis,
             )
-            if joint.motion.call == "":
-                return origin
-            elif joint.motion.call == "linear":
-                return origin * self.linear(
-                    self.position(spec, name),
-                    joint.motion.sign,
-                    joint.motion.axis,
-                )
-            elif joint.motion.call == "angular":
-                return origin * self.angular(
-                    self.position(spec, name),
-                    joint.motion.sign,
-                    joint.motion.axis,
-                )
-            raise NotImplementedError
+        elif lookup.motion.call == "angular":
+            return origin * self.angular(
+                self.position(spec, name),
+                lookup.motion.sign,
+                lookup.motion.axis,
+            )
+        raise NotImplementedError
 
+    def transform(self, spec, link, base):
         def f_transform(spec, name, forward):
-            e_transform = f_joint(spec, name)
+            e_transform = self.joint(spec, name)
             e_transform = e_transform if forward else e_transform.inverse()
             return e_transform
 
