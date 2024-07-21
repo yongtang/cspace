@@ -39,6 +39,7 @@ def main():
         parser.add_argument("--total", dest="total", type=int, required=True)
         parser.add_argument("--batch", dest="batch", type=int, default=16)
         parser.add_argument("--epoch", dest="epoch", type=int, default=5)
+        parser.add_argument("--basis", dest="basis", type=int, default=None)
         parser.add_argument("--noise", dest="noise", type=int, default=None)
         parser.add_argument("--seed", dest="seed", type=int, default=0)
         load = parser.parse_known_args()[0].load
@@ -101,6 +102,7 @@ def main():
             else cspace.transformers.InverseKinematics(
                 pathlib.Path(args.urdf).read_text(),
                 *args.link,
+                basis=args.basis,
                 model="gpt2",
                 bucket=args.bucket,
             )
