@@ -85,39 +85,65 @@ def main():
         logger.info(
             (
                 "\n"
-                + "\n[Inverse Kinematics]"
+                + "[Inverse Kinematics]\n"
                 + "\n"
-                + "\nZero: {}"
-                + "\nZero/Pose: {}"
+                + "--------------------\n"
                 + "\n"
-                + "\nPred: {}"
-                + "\nPred/Pose: {}"
+                + "Zero: {}\n"
                 + "\n"
-                + "\nTrue: {}"
-                + "\nTrue/Pose: {}"
+                + "Pose: [position]    {}\n"
+                + "      [orientation] {}\n"
+                + "\n"
+                + "--------------------\n"
+                + "\n"
+                + "True: {}\n"
+                + "\n"
+                + "Pose: [position]    {}\n"
+                + "      [orientation] {}\n"
+                + "\n"
+                + "--------------------\n"
+                + "\n"
+                + "Pred: {}\n"
+                + "\n"
+                + "Pose: [position]    {}\n"
+                + "      [orientation] {}\n"
                 + "\n"
             ).format(
                 list(
-                    (name, zero.position(kinematics.spec, name)) for name in zero.name
+                    (name, zero.position(kinematics.spec, name).data.cpu().item())
+                    for name in zero.name
                 ),
                 list(
-                    (name, mark.position(name), mark.orientation(name))
+                    (name, mark.position(name).data.cpu().tolist())
                     for name in mark.name
                 ),
                 list(
-                    (name, inverse.position(kinematics.spec, name))
+                    (name, mark.orientation(name).data.cpu().tolist())
+                    for name in mark.name
+                ),
+                list(
+                    (name, state.position(kinematics.spec, name).data.cpu().item())
+                    for name in state.name
+                ),
+                list(
+                    (name, pose.position(name).data.cpu().tolist())
+                    for name in pose.name
+                ),
+                list(
+                    (name, pose.orientation(name).data.cpu().tolist())
+                    for name in pose.name
+                ),
+                list(
+                    (name, inverse.position(kinematics.spec, name).data.cpu().item())
                     for name in inverse.name
                 ),
                 list(
-                    (name, pred.position(name), pred.orientation(name))
+                    (name, pred.position(name).data.cpu().numpy().tolist())
                     for name in pred.name
                 ),
                 list(
-                    (name, state.position(kinematics.spec, name)) for name in state.name
-                ),
-                list(
-                    (name, pose.position(name), pose.orientation(name))
-                    for name in pose.name
+                    (name, pred.orientation(name).data.cpu().numpy().tolist())
+                    for name in pred.name
                 ),
             )
         )
