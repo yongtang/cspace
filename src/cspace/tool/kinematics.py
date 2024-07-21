@@ -102,7 +102,7 @@ def main():
                 ),
                 list(
                     (name, mark.position(name), mark.orientation(name))
-                    for name in zerop.name
+                    for name in mark.name
                 ),
                 list(
                     (name, inverse.position(kinematics.spec, name))
