@@ -39,7 +39,6 @@ def main():
         parser.add_argument("--total", dest="total", type=int, required=True)
         parser.add_argument("--batch", dest="batch", type=int, default=16)
         parser.add_argument("--epoch", dest="epoch", type=int, default=5)
-        parser.add_argument("--basis", dest="basis", type=int, default=None)
         parser.add_argument("--noise", dest="noise", type=int, default=None)
         parser.add_argument("--seed", dest="seed", type=int, default=0)
         load = parser.parse_known_args()[0].load
@@ -82,7 +81,7 @@ def main():
             zero = cspace.torch.classes.JointStateCollection.zero(
                 kinematics.spec, kinematics.joint
             )
-            zerop = kinematics.forward(zero)
+            mark = kinematics.forward(zero)
         logger.info(
             (
                 "\n"
@@ -102,7 +101,7 @@ def main():
                     (name, zero.position(kinematics.spec, name)) for name in zero.name
                 ),
                 list(
-                    (name, zerop.position(name), zerop.orientation(name))
+                    (name, mark.position(name), mark.orientation(name))
                     for name in zerop.name
                 ),
                 list(
@@ -129,7 +128,6 @@ def main():
             else cspace.transformers.InverseKinematics(
                 pathlib.Path(args.urdf).read_text(),
                 *args.link,
-                basis=args.basis,
                 model="gpt2",
                 bucket=args.bucket,
             )
@@ -139,7 +137,6 @@ def main():
                 args.total,
                 kinematics.joint,
                 kinematics.link,
-                len(kinematics.basis),
                 noise=args.noise,
                 seed=args.seed,
             )

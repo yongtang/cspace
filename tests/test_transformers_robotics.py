@@ -53,13 +53,13 @@ def test_kinematics_forward(
 
 
 @pytest.mark.parametrize(
-    "model,seed,total,batch,basis,noise,epoch",
+    "model,seed,total,batch,noise,epoch",
     [
         pytest.param(
-            "gpt2", 12345, 8 * 1024 * 1024, 32 * 1024, 3, 2, 5, marks=pytest.mark.full
+            "gpt2", 12345, 8 * 1024 * 1024, 32 * 1024, 2, 5, marks=pytest.mark.full
         ),
-        pytest.param("gpt2", 12345, 8, 2, 3, 2, 5),
-        pytest.param("gpt2", 12345, 8, 2, None, None, 5),
+        pytest.param("gpt2", 12345, 8, 2, 2, 5),
+        pytest.param("gpt2", 12345, 8, 2, None, 5),
     ],
 )
 def test_kinematics_inverse(
@@ -71,7 +71,6 @@ def test_kinematics_inverse(
     seed,
     total,
     batch,
-    basis,
     noise,
     epoch,
     request,
@@ -88,13 +87,12 @@ def test_kinematics_inverse(
     kinematics = cspace.transformers.InverseKinematics(
         pathlib.Path(urdf_file_tutorial).read_text(),
         "left_gripper",
-        basis=basis,
         model=model,
     )
 
     with accelerator.main_process_first():
         dataset = cspace.transformers.InverseDataset(
-            total, kinematics.joint, kinematics.link, basis, noise=noise, seed=seed
+            total, kinematics.joint, kinematics.link, noise=noise, seed=seed
         )
 
     kinematics.train(
@@ -123,7 +121,7 @@ def test_kinematics_inverse(
     zero = cspace.torch.classes.JointStateCollection.zero(
         kinematics.spec, kinematics.joint
     )
-    zerop = kinematics.forward(zero)
+    mark = kinematics.forward(zero)
     logger.info(
         (
             "\n"
@@ -143,8 +141,8 @@ def test_kinematics_inverse(
             + "\n"
         ).format(
             list((name, zero.position(kinematics.spec, name)) for name in zero.name),
-            list((name, zerop.position(name)) for name in zerop.name),
-            list((name, zerop.orientation(name)) for name in zerop.name),
+            list((name, mark.position(name)) for name in mark.name),
+            list((name, mark.orientation(name)) for name in mark.name),
             list((name, state.position(kinematics.spec, name)) for name in state.name),
             list((name, pose.position(name)) for name in pose.name),
             list((name, pose.orientation(name)) for name in pose.name),

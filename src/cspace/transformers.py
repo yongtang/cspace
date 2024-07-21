@@ -52,21 +52,20 @@ class Model(torch.nn.Module):
 
 
 class InverseDataset(torch.utils.data.Dataset):
-    def __init__(self, total, joint, link, basis, noise=None, seed=None):
+    def __init__(self, total, joint, link, noise=None, seed=None):
         generator = torch.Generator().manual_seed(seed)
         self.delta = torch.rand(
             total, len(joint), generator=generator, dtype=torch.float64
         )
-        basis = basis if basis else 1
         if not noise:
-            self.noise = torch.zeros((total, len(link), 6 * basis), dtype=torch.float64)
+            self.noise = torch.zeros((total, len(link), 6), dtype=torch.float64)
         else:
             self.delta = self.delta.unsqueeze(0).expand(noise, -1, -1).flatten(0, 1)
             std = torch.tensor(0.01, dtype=torch.float64).expand(
-                noise * total, len(link), 6 * basis
+                noise * total, len(link), 6
             )
             mean = torch.tensor(0.0, dtype=torch.float64).expand(
-                noise * total, len(link), 6 * basis
+                noise * total, len(link), 6
             )
             self.noise = torch.normal(mean, std, generator=generator)
 
@@ -80,18 +79,13 @@ class InverseDataset(torch.utils.data.Dataset):
 class InverseKinematics(cspace.torch.classes.Kinematics):
     loss_fn = torch.nn.CrossEntropyLoss()
 
-    def __init__(
-        self, description, *link, base=None, model=None, basis=None, bucket=None
-    ):
+    def __init__(self, description, *link, base=None, model=None, bucket=None):
         super().__init__(description, *link, base=base)
         if model:
-
-            basis = basis if basis else 1
-
             self.bucket = bucket if bucket else 1000
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
-                (len(self.link) * 6 * basis),
+                (len(self.link) * 6),
                 transformer.get_input_embeddings().embedding_dim,
                 dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
@@ -105,19 +99,10 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
             self.model = Model(transformer, input_embeddings, output_embeddings)
 
-            space = torch.linspace(-1.0, 1.0, basis + 1)
-            entries = torch.sum(torch.stack((space[1:], space[:-1]), dim=0), dim=0)
-
-            shape = [len(self.joint)]
-            zero = cspace.torch.classes.JointStateCollection.zero(self.spec, self.joint)
-            self.basis = tuple(
-                self.forward(zero.apply(self.spec, entry.expand(*shape)))
-                for entry in entries
-            )
-
     def inverse(self, pose):
         with torch.no_grad():
-            data = self.encode(pose, self.basis)
+            zero = cspace.torch.classes.JointStateCollection.zero(self.spec, self.joint)
+            data = self.encode(zero, pose)
 
             pred = self.model(data)
 
@@ -164,7 +149,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             for batch, (delta, noise) in enumerate(dataloader):
                 true = zero.apply(self.spec, delta)
                 pose = self.forward(true)
-                data = self.encode(pose, self.basis, noise)
+                data = self.encode(zero, pose, noise)
                 pred = model(data)
                 loss = self.loss(pred, true)
                 accelerator.backward(loss)
@@ -197,20 +182,15 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             )
         )
 
-    def encode(self, pose, basis, noise=None):
-
-        value = tuple(
-            torch.stack(
-                tuple(
-                    (entry.transform(name).inverse() * pose.transform(name)).log
-                    for name in pose.name
-                ),
-                dim=-2,
-            )
-            for entry in self.basis
+    def encode(self, state, pose, noise=None):
+        mark = self.forward(state)
+        value = torch.stack(
+            tuple(
+                (mark.transform(name).inverse() * pose.transform(name)).log
+                for name in pose.name
+            ),
+            dim=-2,
         )
-        value = torch.stack(value, dim=-1)
-        value = torch.flatten(value, -2, -1)
 
         value = value if noise is None else value + noise
 
