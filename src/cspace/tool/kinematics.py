@@ -77,13 +77,16 @@ def main():
             pose = kinematics.forward(state)
 
             inverse = kinematics.inverse(pose)
+            pred = kinematics.forward(inverse)
         logger.info(
             (
                 "\n"
                 + "\n[Inverse Kinematics]"
                 + "\n"
                 + "\nPred: {}"
+                + "\nPred/Pose: {}"
                 + "\nTrue: {}"
+                + "\nTrue/Pose: {}"
                 + "\n"
             ).format(
                 list(
@@ -91,7 +94,15 @@ def main():
                     for name in inverse.name
                 ),
                 list(
+                    (name, pred.position(name), pred.orientation(name))
+                    for name in pred.name
+                ),
+                list(
                     (name, state.position(kinematics.spec, name)) for name in state.name
+                ),
+                list(
+                    (name, pose.position(name), pose.orientation(name))
+                    for name in pose.name
                 ),
             )
         )
