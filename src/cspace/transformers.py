@@ -54,14 +54,14 @@ class Model(torch.nn.Module):
 
 
 class InverseDataset(torch.utils.data.Dataset):
-    def __init__(self, total, joint, link, node, noise=None, seed=None):
+    def __init__(self, total, joint, link, pair, noise=None, seed=None):
         generator = torch.Generator().manual_seed(seed)
         self.delta = torch.rand(
             total, len(joint), generator=generator, dtype=torch.float64
         )
         if not noise:
             self.noise = torch.zeros(
-                (total, len(link) + len(node) + len(joint), 6), dtype=torch.float64
+                (total, len(link) + len(pair) + len(joint), 6), dtype=torch.float64
             )
         else:
             self.delta = self.delta.unsqueeze(0).expand(noise, -1, -1).flatten(0, 1)
@@ -76,7 +76,7 @@ class InverseDataset(torch.utils.data.Dataset):
                 (
                     torch.normal(mean, std, generator=generator),
                     torch.zeros(
-                        (noise * total, len(node) + len(joint), 6), dtype=torch.float64
+                        (noise * total, len(pair) + len(joint), 6), dtype=torch.float64
                     ),
                 ),
                 dim=-2,
@@ -98,7 +98,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             self.bucket = bucket if bucket else 1000
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
-                ((len(self.link) + len(self.node) + len(self.joint)) * 6),
+                ((len(self.link) + len(self.pair) + len(self.joint)) * 6),
                 transformer.get_input_embeddings().embedding_dim,
                 dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
@@ -117,12 +117,16 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             zero = cspace.torch.classes.JointStateCollection.zero(
                 self.spec,
                 self.joint,
-                batch=[1],
+                batch=pose.batch,
             )
 
             data = self.encode(zero, pose)
 
+            data = data if len(pose.batch) else torch.unsqueeze(data, 0)
+
             pred = self.model(data)
+
+            pred = pred if len(pose.batch) else torch.squeeze(pred, 0)
 
             state = self.decode(pred)
 
@@ -203,7 +207,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         )
 
     @functools.cached_property
-    def node(self):
+    def pair(self):
         entries = set(
             itertools.chain.from_iterable(
                 (
@@ -212,17 +216,31 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 )
             )
         )
+
+        entries = tuple(
+            sorted((x, y) for x, y in itertools.product(entries, entries) if x != y)
+        )
+
+        return entries
+
         return tuple(sorted(link for link in entries if link != self.base))
 
     def encode(self, state, pose, noise=None):
+        assert state.batch == pose.batch, "{} vs. {}".format(state.batch, pose.batch)
+
         mark = self.forward(state)
+
         value = (
             tuple(
                 (mark.transform(name).inverse() * pose.transform(name)).log
                 for name in pose.name
             )
             + tuple(
-                state.transform(self.spec, name, self.base).log for name in self.node
+                (
+                    state.transform(self.spec, x, self.base).inverse()
+                    * state.transform(self.spec, y, self.base)
+                ).log
+                for x, y in self.pair
             )
             + tuple(state.joint(self.spec, name).log for name in self.joint)
         )
@@ -234,8 +252,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
         value = value if noise is None else value + noise.to(device)
 
-        value = torch.flatten(value, 1, -1)
-        value = torch.unsqueeze(value, -2)
+        value = torch.reshape(value, pose.batch + (1, -1))
 
         return value
 

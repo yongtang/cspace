@@ -95,7 +95,7 @@ def test_kinematics_inverse(
             total,
             kinematics.joint,
             kinematics.link,
-            kinematics.node,
+            kinematics.pair,
             noise=noise,
             seed=seed,
         )
