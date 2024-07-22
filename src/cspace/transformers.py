@@ -1,6 +1,8 @@
 import cspace.cspace.classes
 import cspace.torch.classes
 import transformers
+import itertools
+import functools
 import torch
 
 
@@ -52,14 +54,14 @@ class Model(torch.nn.Module):
 
 
 class InverseDataset(torch.utils.data.Dataset):
-    def __init__(self, total, joint, link, noise=None, seed=None):
+    def __init__(self, total, joint, link, node, noise=None, seed=None):
         generator = torch.Generator().manual_seed(seed)
         self.delta = torch.rand(
             total, len(joint), generator=generator, dtype=torch.float64
         )
         if not noise:
             self.noise = torch.zeros(
-                (total, len(link) + len(joint), 6), dtype=torch.float64
+                (total, len(link) + len(node) + len(joint), 6), dtype=torch.float64
             )
         else:
             self.delta = self.delta.unsqueeze(0).expand(noise, -1, -1).flatten(0, 1)
@@ -73,7 +75,9 @@ class InverseDataset(torch.utils.data.Dataset):
             self.noise = torch.concatenate(
                 (
                     torch.normal(mean, std, generator=generator),
-                    torch.zeros((noise * total, len(joint), 6), dtype=torch.float64),
+                    torch.zeros(
+                        (noise * total, len(node) + len(joint), 6), dtype=torch.float64
+                    ),
                 ),
                 dim=-2,
             )
@@ -94,7 +98,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             self.bucket = bucket if bucket else 1000
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
-                ((len(self.link) + len(self.joint)) * 6),
+                ((len(self.link) + len(self.node) + len(self.joint)) * 6),
                 transformer.get_input_embeddings().embedding_dim,
                 dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
@@ -198,12 +202,30 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             )
         )
 
+    @functools.cached_property
+    def node(self):
+        entries = set(
+            itertools.chain.from_iterable(
+                (
+                    (self.spec.joint(e).child, self.spec.joint(e).parent)
+                    for e in self.joint
+                )
+            )
+        )
+        return tuple(sorted(link for link in entries if link != self.base))
+
     def encode(self, state, pose, noise=None):
         mark = self.forward(state)
-        value = tuple(
-            (mark.transform(name).inverse() * pose.transform(name)).log
-            for name in pose.name
-        ) + tuple(state.joint(self.spec, name).log for name in self.joint)
+        value = (
+            tuple(
+                (mark.transform(name).inverse() * pose.transform(name)).log
+                for name in pose.name
+            )
+            + tuple(
+                state.transform(self.spec, name, self.base).log for name in self.node
+            )
+            + tuple(state.joint(self.spec, name).log for name in self.joint)
+        )
 
         device = next(iter(value)).device
 

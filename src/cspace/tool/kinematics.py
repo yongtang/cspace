@@ -163,6 +163,7 @@ def main():
                 args.total,
                 kinematics.joint,
                 kinematics.link,
+                kinematics.node,
                 noise=args.noise,
                 seed=args.seed,
             )

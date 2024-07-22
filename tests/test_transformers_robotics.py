@@ -92,7 +92,12 @@ def test_kinematics_inverse(
 
     with accelerator.main_process_first():
         dataset = cspace.transformers.InverseDataset(
-            total, kinematics.joint, kinematics.link, noise=noise, seed=seed
+            total,
+            kinematics.joint,
+            kinematics.link,
+            kinematics.node,
+            noise=noise,
+            seed=seed,
         )
 
     kinematics.train(
