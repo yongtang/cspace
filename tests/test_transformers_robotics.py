@@ -127,6 +127,8 @@ def test_kinematics_inverse(
             "\n"
             + "[Inverse Kinematics]\n"
             + "\n"
+            + "Limit:{}\n"
+            + "\n"
             + "--------------------\n"
             + "\n"
             + "Zero: {}\n"
@@ -149,6 +151,9 @@ def test_kinematics_inverse(
             + "      [orientation] {}\n"
             + "\n"
         ).format(
+            list(
+                (name, kinematics.spec.joint(name).motion.limit) for name in zero.name
+            ),
             list(
                 (name, zero.position(kinematics.spec, name).data.cpu().item())
                 for name in zero.name

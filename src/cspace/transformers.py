@@ -54,13 +54,13 @@ class Model(torch.nn.Module):
 class InverseDataset(torch.utils.data.Dataset):
     def __init__(self, total, joint, link, noise=None, seed=None):
         generator = torch.Generator().manual_seed(seed)
-        self.delta = torch.rand(
+        self.scale = torch.rand(
             total, len(joint), generator=generator, dtype=torch.float64
         )
         if not noise:
             self.noise = torch.zeros((total, len(link), 6), dtype=torch.float64)
         else:
-            self.delta = self.delta.unsqueeze(0).expand(noise, -1, -1).flatten(0, 1)
+            self.scale = self.scale.unsqueeze(0).expand(noise, -1, -1).flatten(0, 1)
             std = torch.tensor(0.01, dtype=torch.float64).expand(
                 noise * total, len(link), 6
             )
@@ -70,10 +70,10 @@ class InverseDataset(torch.utils.data.Dataset):
             self.noise = torch.normal(mean, std, generator=generator)
 
     def __len__(self):
-        return self.delta.shape[0]
+        return self.scale.shape[0]
 
     def __getitem__(self, key):
-        return (self.delta[key], self.noise[key])
+        return (self.scale[key], self.noise[key])
 
 
 class InverseKinematics(cspace.torch.classes.Kinematics):
@@ -102,9 +102,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
     def inverse(self, pose):
         with torch.no_grad():
             zero = cspace.torch.classes.JointStateCollection.zero(
-                self.spec,
-                self.joint,
-                batch=pose.batch,
+                self.spec, self.joint, pose.batch
             )
 
             data = self.encode(zero, pose)
@@ -149,16 +147,16 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         )
 
         zero = cspace.torch.classes.JointStateCollection.zero(
-            self.spec,
-            self.joint,
-            batch=[batch],
+            self.spec, self.joint, [batch]
         )
 
         model.train()
         for index in range(epoch):
             total, count = 0, 0
-            for batch, (delta, noise) in enumerate(dataloader):
-                true = zero.apply(self.spec, delta)
+            for batch, (scale, noise) in enumerate(dataloader):
+                true = cspace.torch.classes.JointStateCollection.apply(
+                    self.spec, self.joint, scale, min=0.0, max=1.0
+                )
                 pose = self.forward(true)
                 data = self.encode(zero, pose, noise)
                 pred = model(data)
@@ -215,42 +213,41 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         return value
 
     def decode(self, pred):
-        batch = pred.shape[:-1]
+        pred_value = torch.unflatten(pred, -1, (self.bucket, -1))
+        assert pred_value.shape[-2:] == (self.bucket, len(self.joint))
 
-        encoded = torch.unflatten(pred, -1, (-1, self.bucket))
-        assert encoded.shape[-2:] == torch.Size([1 * len(self.joint), self.bucket])
+        pred_index = torch.argmax(pred_value, dim=-2)
 
-        delta_value = torch.argmax(encoded, dim=-1)
-        delta_value = delta_value.to(torch.float64) / (self.bucket - 1)
-        delta_value = torch.clip(delta_value, min=0.0, max=1.0)
-
-        zero = cspace.torch.classes.JointStateCollection.zero(
-            self.spec, self.joint, batch
+        indices = torch.linspace(
+            0.5 / self.bucket,
+            1.0 - 0.5 / self.bucket,
+            self.bucket,
+            device=pred_index.device,
         )
-        state = zero.apply(self.spec, delta_value)
 
+        pred_scale = indices[pred_index]
+
+        state = cspace.torch.classes.JointStateCollection.apply(
+            self.spec, self.joint, pred_scale, min=0.0, max=1.0
+        )
         return state
 
     def loss(self, pred, true):
         assert true.batch == pred.shape[:-1], "{} vs. {}".format(true.batch, pred.shape)
 
-        pred_value = torch.unflatten(pred, -1, (-1, self.bucket))
-        assert pred_value.shape[-2:] == torch.Size([1 * len(self.joint), self.bucket])
-        pred_value = torch.transpose(pred_value, -1, -2)
+        pred_value = torch.unflatten(pred, -1, (self.bucket, -1))
+        assert pred_value.shape[-2:] == (self.bucket, len(self.joint))
 
-        zero_state = cspace.torch.classes.JointStateCollection.zero(
-            self.spec, self.joint, true.batch
+        true_scale = true.scale(self.spec, min=0.0, max=1.0)
+
+        boundaries = torch.linspace(
+            1.0 / self.bucket,
+            1.0 - 1.0 / self.bucket,
+            self.bucket - 1,
+            device=true_scale.device,
         )
-        true_state = cspace.torch.classes.JointStateCollection(
-            self.joint,
-            torch.stack(
-                tuple(true.position(self.spec, name) for name in self.joint), dim=-1
-            ),
-        )
-        true_delta = zero_state.delta(self.spec, true_state)
-        true_delta = true_delta.to(pred_value.device)
-        true_value = true_delta * (self.bucket - 1)
-        true_value = torch.clip(true_value.to(torch.int64), min=0, max=self.bucket - 1)
+
+        true_value = torch.bucketize(true_scale, boundaries)
         return self.loss_fn(pred_value, true_value)
 
 
