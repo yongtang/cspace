@@ -52,47 +52,73 @@ class Model(torch.nn.Module):
 
 
 class InverseDataset(torch.utils.data.Dataset):
-    def __init__(self, total, joint, link, noise=None, seed=None):
+    def __init__(self, joint, link, bucket, length, total, noise=None, seed=None):
+        total = total if noise is None else (noise * total)
         generator = torch.Generator().manual_seed(seed)
-        self.delta = torch.rand(
-            total, len(joint), generator=generator, dtype=torch.float64
+
+        self.index = torch.randint(
+            low=0,
+            high=bucket,
+            size=(total, length, len(joint)),
+            generator=generator,
+            dtype=torch.int64,
         )
         if not noise:
             self.noise = torch.zeros((total, len(link), 6), dtype=torch.float64)
         else:
-            self.delta = self.delta.unsqueeze(0).expand(noise, -1, -1).flatten(0, 1)
-            std = torch.tensor(0.01, dtype=torch.float64).expand(
-                noise * total, len(link), 6
-            )
-            mean = torch.tensor(0.0, dtype=torch.float64).expand(
-                noise * total, len(link), 6
-            )
+            std = torch.tensor(0.01, dtype=torch.float64).expand(total, len(link), 6)
+            mean = torch.tensor(0.0, dtype=torch.float64).expand(total, len(link), 6)
             self.noise = torch.normal(mean, std, generator=generator)
 
+        prod = torch.cumprod(
+            torch.tensor(1.0 / bucket, dtype=torch.float64).expand([1, length, 1]),
+            dim=-2,
+        )
+        zero = prod * bucket / 2.0
+
+        self.scale = torch.sub(
+            torch.add(torch.multiply(self.index, prod), prod / 2), zero
+        )
+
+        self.scale = torch.concatenate(
+            (
+                torch.zeros((total, 1, len(joint)), dtype=torch.float64),
+                self.scale,
+            ),
+            dim=-2,
+        )
+
+        self.scale = torch.cumsum(self.scale, dim=-2)  # (-0.5, 0.5)
+
+        self.scale = self.scale * 2.0  # (-1.0, 1.0)
+
     def __len__(self):
-        return self.delta.shape[0]
+        return self.scale.shape[0]
 
     def __getitem__(self, key):
-        return (self.delta[key], self.noise[key])
+        return (self.scale[key], self.index[key], self.noise[key])
 
 
 class InverseKinematics(cspace.torch.classes.Kinematics):
     loss_fn = torch.nn.CrossEntropyLoss()
 
-    def __init__(self, description, *link, base=None, model=None, bucket=None):
+    def __init__(
+        self, description, *link, base=None, model=None, bucket=None, length=None
+    ):
         super().__init__(description, *link, base=base)
         if model:
-            self.bucket = bucket if bucket else 1000
+            self.bucket = bucket if bucket else 10
+            self.length = length if length else 3
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
-                (len(self.link) * 6),
+                (len(self.joint) * 1 + len(self.link) * 6),
                 transformer.get_input_embeddings().embedding_dim,
                 dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
             )
             output_embeddings = torch.nn.Linear(
                 transformer.get_input_embeddings().embedding_dim,
-                (1 * len(self.joint)) * self.bucket,
+                (len(self.joint) * self.bucket),
                 dtype=transformer.get_output_embeddings().weight.dtype,
                 bias=False,
             )
@@ -101,29 +127,45 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
     def inverse(self, pose):
         with torch.no_grad():
-            zero = cspace.torch.classes.JointStateCollection.zero(
-                self.spec,
-                self.joint,
-                batch=pose.batch,
-            )
+            state = [
+                cspace.torch.classes.JointStateCollection.apply(
+                    self.spec,
+                    self.joint,
+                    torch.zeros(pose.batch + tuple([len(self.joint)])),
+                    min=-1.0,
+                    max=1.0,
+                )
+            ]
 
-            data = self.encode(zero, pose)
+            for step in range(self.length):
+                data = self.encode(state, pose)
 
-            data = data if len(pose.batch) else torch.unsqueeze(data, 0)
+                data = data if len(pose.batch) else torch.unsqueeze(data, 0)
 
-            pred = self.model(data)
+                pred = self.model(data)
 
-            pred = pred if len(pose.batch) else torch.squeeze(pred, 0)
+                pred = pred if len(pose.batch) else torch.squeeze(pred, 0)
 
-            state = self.decode(pred)
+                state.append(self.decode(state, pred))
 
-            return state
+            return state[-1]
 
-    def train(self, *, logger, accelerator, dataset, batch=None, epoch=None, save=None):
+    def train(
+        self,
+        *,
+        logger,
+        accelerator,
+        dataset,
+        batch=None,
+        epoch=None,
+        save=None,
+        lr=None,
+    ):
         epoch = epoch if epoch else 1
         batch = batch if batch else 128
+        lr = lr if lr else 1e-5
 
-        optimizer = torch.optim.AdamW(self.model.parameters())
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.ChainedScheduler(
             [
                 torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9),
@@ -148,35 +190,51 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             dataloader, self.model, optimizer, scheduler
         )
 
-        zero = cspace.torch.classes.JointStateCollection.zero(
-            self.spec,
-            self.joint,
-            batch=[batch],
-        )
-
         model.train()
         for index in range(epoch):
             total, count = 0, 0
-            for batch, (delta, noise) in enumerate(dataloader):
-                true = zero.apply(self.spec, delta)
-                pose = self.forward(true)
-                data = self.encode(zero, pose, noise)
-                pred = model(data)
-                loss = self.loss(pred, true)
-                accelerator.backward(loss)
-                optimizer.step()
-                scheduler.step()
-                optimizer.zero_grad()
-                loss = accelerator.gather_for_metrics(loss)
-                pred = accelerator.gather_for_metrics(pred)
-                total += loss.sum().item()
-                count += len(pred)
+            for batch, (scale, true, noise) in enumerate(dataloader):
+                state = tuple(
+                    cspace.torch.classes.JointStateCollection.apply(
+                        self.spec,
+                        self.joint,
+                        torch.select(scale, dim=-2, index=step),
+                        min=-1.0,
+                        max=1.0,
+                    )
+                    for step in range(self.length)
+                )
+                task = self.forward(
+                    cspace.torch.classes.JointStateCollection.apply(
+                        self.spec,
+                        self.joint,
+                        torch.select(scale, dim=-2, index=self.length),
+                        min=-1.0,
+                        max=1.0,
+                    )
+                )
+                for step in range(self.length):
+                    data = self.encode(state[0 : step + 1], task, noise)
+                    pred = model(data)
+                    loss = self.loss_fn(
+                        torch.unflatten(pred, -1, (self.bucket, -1)),
+                        torch.select(true, dim=-2, index=step),
+                    )
+                    accelerator.backward(loss)
+                    optimizer.step()
+                    scheduler.step()
+                    optimizer.zero_grad()
+                    loss = accelerator.gather_for_metrics(loss)
+                    pred = accelerator.gather_for_metrics(pred)
+                    total += loss.sum().item()
+                    count += len(pred)
                 logger.info(
-                    "[Train] ----- Epoch {} [{}/{}] - Loss: {} [/Train]".format(
+                    "[Train] ----- Epoch {} [({}/{}) x {}] - Loss: {} [/Train]".format(
                         index,
                         count,
                         len(dataloader.dataset),
-                        total / count,
+                        self.length,
+                        total / (count * self.length),
                     )
                 )
             (
@@ -193,65 +251,66 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             )
         )
 
-    def encode(self, state, pose, noise=None):
-        assert state.batch == pose.batch, "{} vs. {}".format(state.batch, pose.batch)
+    def encode(self, state, task, noise=None):
+        def f_value(self, entry, task, noise):
+            def f_task(mark, task, noise, index, name):
+                entry = mark.transform(name).inverse() * task.transform(name)
+                if noise is not None:
+                    xyz, rot = cspace.torch.ops.se3_exp(
+                        torch.select(noise, dim=-2, index=index)
+                    )
+                    entry = entry * cspace.torch.classes.Transform(xyz=xyz, rot=rot)
+                return entry.log
 
-        mark = self.forward(state)
+            assert entry.batch == task.batch, "{} vs. {}".format(
+                entry.batch, task.batch
+            )
 
-        value = tuple(
-            (mark.transform(name).inverse() * pose.transform(name)).log
-            for name in pose.name
+            mark = self.forward(entry)
+
+            value = tuple(
+                torch.unsqueeze(entry.position(self.spec, name), -1)
+                for name in entry.name
+            ) + tuple(
+                f_task(mark, task, noise, index, name)
+                for index, name in enumerate(task.name)
+            )
+
+            value = tuple(entry.to(next(iter(value)).device) for entry in value)
+
+            value = torch.concatenate(value, dim=-1)
+
+            value = torch.reshape(value, task.batch + (1, -1))
+
+            return value
+
+        value = tuple(f_value(self, entry, task, noise) for entry in state)
+
+        value = tuple(entry.to(next(iter(value)).device) for entry in value)
+
+        return torch.concatenate(value, dim=-2)
+
+    def decode(self, state, pred):
+        pred = torch.unflatten(pred, -1, (self.bucket, -1))
+        assert pred.shape[-2:] == (self.bucket, len(self.joint))
+
+        index = torch.argmax(pred, dim=-2)
+
+        prod = torch.cumprod(
+            torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand([len(state)]),
+            dim=0,
+        )[-1]
+        zero = prod * self.bucket / 2.0
+
+        scale = (
+            state[-1].scale(self.spec, min=-1.0, max=1.0).to(index.device)
+            + torch.sub(torch.add(torch.multiply(index, prod), prod / 2), zero) * 2.0
+        )  # (-1.0, 1.0)
+
+        state = cspace.torch.classes.JointStateCollection.apply(
+            self.spec, self.joint, scale, min=-1.0, max=1.0
         )
-
-        device = next(iter(value)).device
-
-        value = tuple(entry.to(device) for entry in value)
-        value = torch.stack(value, dim=-2)
-
-        value = value if noise is None else value + noise.to(device)
-
-        value = torch.reshape(value, pose.batch + (1, -1))
-
-        return value
-
-    def decode(self, pred):
-        batch = pred.shape[:-1]
-
-        encoded = torch.unflatten(pred, -1, (-1, self.bucket))
-        assert encoded.shape[-2:] == torch.Size([1 * len(self.joint), self.bucket])
-
-        delta_value = torch.argmax(encoded, dim=-1)
-        delta_value = delta_value.to(torch.float64) / (self.bucket - 1)
-        delta_value = torch.clip(delta_value, min=0.0, max=1.0)
-
-        zero = cspace.torch.classes.JointStateCollection.zero(
-            self.spec, self.joint, batch
-        )
-        state = zero.apply(self.spec, delta_value)
-
         return state
-
-    def loss(self, pred, true):
-        assert true.batch == pred.shape[:-1], "{} vs. {}".format(true.batch, pred.shape)
-
-        pred_value = torch.unflatten(pred, -1, (-1, self.bucket))
-        assert pred_value.shape[-2:] == torch.Size([1 * len(self.joint), self.bucket])
-        pred_value = torch.transpose(pred_value, -1, -2)
-
-        zero_state = cspace.torch.classes.JointStateCollection.zero(
-            self.spec, self.joint, true.batch
-        )
-        true_state = cspace.torch.classes.JointStateCollection(
-            self.joint,
-            torch.stack(
-                tuple(true.position(self.spec, name) for name in self.joint), dim=-1
-            ),
-        )
-        true_delta = zero_state.delta(self.spec, true_state)
-        true_delta = true_delta.to(pred_value.device)
-        true_value = true_delta * (self.bucket - 1)
-        true_value = torch.clip(true_value.to(torch.int64), min=0, max=self.bucket - 1)
-        return self.loss_fn(pred_value, true_value)
 
 
 class PolicyKinematics(cspace.torch.classes.Kinematics):
@@ -260,14 +319,14 @@ class PolicyKinematics(cspace.torch.classes.Kinematics):
         if model:
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
-                (6 * len(self.link)),
+                (len(self.joint) * 1 + len(self.link) * 6),
                 transformer.get_input_embeddings().embedding_dim,
                 dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
             )
             output_embeddings = torch.nn.Linear(
                 transformer.get_input_embeddings().embedding_dim,
-                (1 * len(self.joint)) * self.bucket,
+                (len(self.joint) * self.bucket),
                 dtype=transformer.get_output_embeddings().weight.dtype,
                 bias=False,
             )

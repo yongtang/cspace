@@ -322,7 +322,9 @@ def test_transform(
                 device=device,
                 dtype=torch.float64,
             )
-            assert true_position.shape == pose.position(link).shape
-            assert torch.allclose(true_position, pose.position(link), atol=1e-4)
-            assert true_orientation.shape == pose.orientation(link).shape
-            assert torch.allclose(true_orientation, pose.orientation(link), atol=1e-4)
+            pose_position = pose.position(link).to(device)
+            pose_orientation = pose.orientation(link).to(device)
+            assert true_position.shape == pose_position.shape
+            assert torch.allclose(true_position, pose_position, atol=1e-4)
+            assert true_orientation.shape == pose_orientation.shape
+            assert torch.allclose(true_orientation, pose_orientation, atol=1e-4)

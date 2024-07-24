@@ -39,14 +39,17 @@ def main():
         parser.add_argument("--total", dest="total", type=int, required=True)
         parser.add_argument("--batch", dest="batch", type=int, default=16)
         parser.add_argument("--epoch", dest="epoch", type=int, default=5)
+        parser.add_argument("--repeat", dest="repeat", type=int, default=5)
         parser.add_argument("--noise", dest="noise", type=int, default=None)
         parser.add_argument("--seed", dest="seed", type=int, default=0)
+        parser.add_argument("--lr", dest="lr", type=float, default=None)
         load = parser.parse_known_args()[0].load
 
         if not load:
             parser.add_argument("--urdf", dest="urdf", type=str, required=True)
             parser.add_argument("--link", dest="link", type=str, nargs="+", default=[])
             parser.add_argument("--bucket", dest="bucket", type=int, default=None)
+            parser.add_argument("--length", dest="length", type=int, default=None)
 
     args = parser.parse_args()
 
@@ -78,14 +81,20 @@ def main():
             inverse = kinematics.inverse(pose)
             pred = kinematics.forward(inverse)
 
-            zero = cspace.torch.classes.JointStateCollection.zero(
-                kinematics.spec, kinematics.joint
+            zero = cspace.torch.classes.JointStateCollection.apply(
+                kinematics.spec,
+                kinematics.joint,
+                torch.zeros(pose.batch + tuple([len(kinematics.joint)])),
+                min=-1.0,
+                max=1.0,
             )
             mark = kinematics.forward(zero)
         logger.info(
             (
                 "\n"
                 + "[Inverse Kinematics]\n"
+                + "\n"
+                + "Limit:{}\n"
                 + "\n"
                 + "--------------------\n"
                 + "\n"
@@ -109,6 +118,10 @@ def main():
                 + "      [orientation] {}\n"
                 + "\n"
             ).format(
+                list(
+                    (name, kinematics.spec.joint(name).motion.limit)
+                    for name in zero.name
+                ),
                 list(
                     (name, zero.position(kinematics.spec, name).data.cpu().item())
                     for name in zero.name
@@ -156,25 +169,31 @@ def main():
                 *args.link,
                 model="gpt2",
                 bucket=args.bucket,
+                length=args.length,
             )
         )
-        with accelerator.main_process_first():
-            dataset = cspace.transformers.InverseDataset(
-                args.total,
-                kinematics.joint,
-                kinematics.link,
-                noise=args.noise,
-                seed=args.seed,
-            )
+        for r in range(args.repeat):
+            logger.info("Repeat {}".format(r))
+            with accelerator.main_process_first():
+                dataset = cspace.transformers.InverseDataset(
+                    kinematics.joint,
+                    kinematics.link,
+                    kinematics.bucket,
+                    kinematics.length,
+                    args.total,
+                    noise=args.noise,
+                    seed=args.seed,
+                )
 
-        kinematics.train(
-            logger=logger,
-            accelerator=accelerator,
-            dataset=dataset,
-            batch=args.batch,
-            epoch=args.epoch,
-            save=args.save,
-        )
+            kinematics.train(
+                logger=logger,
+                accelerator=accelerator,
+                dataset=dataset,
+                batch=args.batch,
+                epoch=args.epoch,
+                save=args.save,
+                lr=args.lr,
+            )
 
 
 if __name__ == "__main__":
