@@ -200,7 +200,6 @@ class Attribute:
             elif joint == "revolute":
                 call = "angular"
                 lower, upper = float(lower), float(upper)
-                assert upper <= lower + math.pi * 2.0
             elif joint == "continuous":
                 call = "angular"
                 lower, upper = -math.pi, math.pi

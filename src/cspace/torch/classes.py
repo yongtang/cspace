@@ -41,7 +41,6 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         assert len(self.name) == self._position_.shape[-1]
 
     def position(self, spec, name):
-
         if not spec.joint(name).motion.call:  # fixed
             return torch.empty(
                 self._position_.shape[:-1],
