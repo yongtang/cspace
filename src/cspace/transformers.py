@@ -104,11 +104,16 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             zero = cspace.torch.classes.JointStateCollection.zero(
                 self.spec,
                 self.joint,
+                batch=pose.batch,
             )
 
             data = self.encode(zero, pose)
 
+            data = data if len(pose.batch) else torch.unsqueeze(data, 0)
+
             pred = self.model(data)
+
+            pred = pred if len(pose.batch) else torch.squeeze(pred, 0)
 
             state = self.decode(pred)
 
@@ -189,19 +194,23 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         )
 
     def encode(self, state, pose, noise=None):
+        assert state.batch == pose.batch, "{} vs. {}".format(state.batch, pose.batch)
+
         mark = self.forward(state)
-        value = torch.stack(
-            tuple(
-                (mark.transform(name).inverse() * pose.transform(name)).log
-                for name in pose.name
-            ),
-            dim=-2,
+
+        value = tuple(
+            (mark.transform(name).inverse() * pose.transform(name)).log
+            for name in pose.name
         )
 
-        value = value if noise is None else value + noise
+        device = next(iter(value)).device
 
-        value = torch.flatten(value, 1, -1)
-        value = torch.unsqueeze(value, -2)
+        value = tuple(entry.to(device) for entry in value)
+        value = torch.stack(value, dim=-2)
+
+        value = value if noise is None else value + noise.to(device)
+
+        value = torch.reshape(value, pose.batch + (1, -1))
 
         return value
 
