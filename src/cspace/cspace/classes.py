@@ -94,22 +94,18 @@ class JointStateCollection(abc.ABC):
             self.identity(),
         )
 
-    @abc.abstractmethod
-    def apply(self, spec, delta):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def delta(self, spec, other):
-        raise NotImplementedError
-
     @property
     @abc.abstractmethod
     def batch(self):
         raise NotImplementedError
 
+    @abc.abstractmethod
+    def scale(self, spec, min, max):
+        raise NotImplementedError
+
     @classmethod
     @abc.abstractmethod
-    def zero(cls, spec, joint, batch=None):
+    def apply(cls, spec, joint, scale, min, max):
         raise NotImplementedError
 
     @classmethod

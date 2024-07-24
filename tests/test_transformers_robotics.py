@@ -53,13 +53,21 @@ def test_kinematics_forward(
 
 
 @pytest.mark.parametrize(
-    "model,seed,total,batch,noise,epoch",
+    "model,bucket,length,total,seed,noise,batch,epoch",
     [
         pytest.param(
-            "gpt2", 12345, 8 * 1024 * 1024, 32 * 1024, 2, 5, marks=pytest.mark.full
+            "gpt2",
+            None,
+            None,
+            8 * 1024 * 1024,
+            12345,
+            2,
+            32 * 1024,
+            5,
+            marks=pytest.mark.full,
         ),
-        pytest.param("gpt2", 12345, 8, 2, 2, 5),
-        pytest.param("gpt2", 12345, 8, 2, None, 5),
+        pytest.param("gpt2", None, None, 8, 12345, 2, 2, 5),
+        pytest.param("gpt2", None, None, 8, 12345, None, 2, 5),
     ],
 )
 def test_kinematics_inverse(
@@ -68,10 +76,12 @@ def test_kinematics_inverse(
     joint_state_tutorial,
     link_pose_tutorial,
     model,
-    seed,
+    bucket,
+    length,
     total,
-    batch,
+    seed,
     noise,
+    batch,
     epoch,
     request,
     tmp_path_factory,
@@ -88,11 +98,19 @@ def test_kinematics_inverse(
         pathlib.Path(urdf_file_tutorial).read_text(),
         "left_gripper",
         model=model,
+        bucket=bucket,
+        length=length,
     )
 
     with accelerator.main_process_first():
         dataset = cspace.transformers.InverseDataset(
-            total, kinematics.joint, kinematics.link, noise=noise, seed=seed
+            kinematics.joint,
+            kinematics.link,
+            kinematics.bucket,
+            kinematics.length,
+            total,
+            noise=noise,
+            seed=seed,
         )
 
     kinematics.train(
@@ -118,14 +136,20 @@ def test_kinematics_inverse(
     inverse = kinematics.inverse(pose)
     pred = kinematics.forward(inverse)
 
-    zero = cspace.torch.classes.JointStateCollection.zero(
-        kinematics.spec, kinematics.joint
+    zero = cspace.torch.classes.JointStateCollection.apply(
+        kinematics.spec,
+        kinematics.joint,
+        torch.zeros([len(kinematics.joint)]),
+        min=-1.0,
+        max=1.0,
     )
     mark = kinematics.forward(zero)
     logger.info(
         (
             "\n"
             + "[Inverse Kinematics]\n"
+            + "\n"
+            + "Limit:{}\n"
             + "\n"
             + "--------------------\n"
             + "\n"
@@ -149,6 +173,9 @@ def test_kinematics_inverse(
             + "      [orientation] {}\n"
             + "\n"
         ).format(
+            list(
+                (name, kinematics.spec.joint(name).motion.limit) for name in zero.name
+            ),
             list(
                 (name, zero.position(kinematics.spec, name).data.cpu().item())
                 for name in zero.name

@@ -60,124 +60,60 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         orientation = torch.stack(tuple(entry.qua for entry in entries), dim=-1)
         return LinkPoseCollection(base, link, position, orientation)
 
-    def apply(self, spec, delta):
-        assert self._position_.shape == delta.shape, "{} vs. {}".format(
-            self._position_.shape, delta.shape
-        )
-
-        def f_apply(joint, value, delta):
-            delta_scale = torch.clip(delta, min=0.0, max=1.0)
-
-            self_value = value.to(delta_scale.device)
-            self_value = (
-                self.angle(self_value, joint.motion.zero, joint.motion.limit)
-                if joint.motion.call == "angular"
-                else self_value
-            )
-            self_value = torch.clip(
-                self_value,
-                min=joint.motion.zero - joint.motion.limit,
-                max=joint.motion.zero + joint.motion.limit,
-            )
-            self_scale = (self_value - (joint.motion.zero - joint.motion.limit)) / (
-                joint.motion.limit * 2.0
-            )
-
-            other_scale = (self_scale + delta_scale + 1.0) % 1.0
-
-            other_value = other_scale * (joint.motion.limit * 2.0) + (
-                joint.motion.zero - joint.motion.limit
-            )
-
-            other_value = torch.clip(
-                other_value,
-                min=joint.motion.zero - joint.motion.limit,
-                max=joint.motion.zero + joint.motion.limit,
-            )
-
-            return other_value
-
-        position = torch.stack(
-            tuple(
-                f_apply(
-                    spec.joint(name),
-                    self.position(spec, name),
-                    torch.select(delta, dim=-1, index=index),
-                )
-                for index, name in enumerate(self.name)
-            ),
-            dim=-1,
-        )
-        return self.__class__(name=self.name, position=position)
-
-    def delta(self, spec, other):
-        assert self.name == other.name
-
-        def f_delta(spec, name, self, other):
-            joint = spec.joint(name)
-
-            other_value = other.position(spec, name)
-            other_value = (
-                self.angle(other_value, joint.motion.zero, joint.motion.limit)
-                if joint.motion.call == "angular"
-                else other_value
-            )
-            other_value = torch.clip(
-                other_value,
-                min=joint.motion.zero - joint.motion.limit,
-                max=joint.motion.zero + joint.motion.limit,
-            )
-            other_scale = (other_value - (joint.motion.zero - joint.motion.limit)) / (
-                joint.motion.limit * 2.0
-            )
-
-            self_value = self.position(spec, name).to(other_scale.device)
-            self_value = (
-                self.angle(self_value, joint.motion.zero, joint.motion.limit)
-                if joint.motion.call == "angular"
-                else self_value
-            )
-            self_value = torch.clip(
-                self_value,
-                min=joint.motion.zero - joint.motion.limit,
-                max=joint.motion.zero + joint.motion.limit,
-            )
-            self_scale = (self_value - (joint.motion.zero - joint.motion.limit)) / (
-                joint.motion.limit * 2.0
-            )
-
-            delta_scale = (other_scale - self_scale + 1.0) % 1.0
-
-            delta_scale = torch.clip(delta_scale, min=0.0, max=1.0)
-
-            return delta_scale
-
-        return torch.stack(
-            tuple(f_delta(spec, name, self, other) for name in self.name),
-            dim=-1,
-        )
-
-    @functools.cache
-    def index(self, name):
-        return self.name.index(name)
-
     @property
     def batch(self):
         return tuple(self._position_.shape[:-1])
 
-    @classmethod
-    def zero(cls, spec, joint, batch=None):
-        batch = batch if batch else []
-        return cls(
-            joint,
-            torch.stack(
-                tuple(
-                    torch.tensor(spec.joint(name).motion.zero).expand(batch)
-                    for name in joint
-                ),
-                dim=-1,
+    def scale(self, spec, min, max):
+        assert min < max
+
+        scale = torch.stack(
+            tuple(
+                (
+                    (self.position(spec, name) - spec.joint(name).motion.zero)
+                    / (spec.joint(name).motion.limit)
+                )
+                for name in self.name
             ),
+            dim=-1,
         )
+
+        zero = (min + max) / 2.0
+        limit = (max - min) / 2.0
+        scale = zero + scale * limit
+
+        scale = torch.clip(scale, min=min, max=max)
+
+        return scale
+
+    @classmethod
+    def apply(cls, spec, joint, scale, min, max):
+        assert min < max
+        assert scale.shape[-1] == len(joint)
+
+        scale = torch.clip(scale, min=min, max=max)
+
+        zero = (min + max) / 2.0
+        limit = (max - min) / 2.0
+        scale = (scale - zero) / limit
+
+        position = torch.stack(
+            tuple(
+                (
+                    torch.select(scale, dim=-1, index=index)
+                    * (spec.joint(name).motion.limit)
+                    + spec.joint(name).motion.zero
+                )
+                for index, name in enumerate(joint)
+            ),
+            dim=-1,
+        )
+
+        return cls(joint, position)
+
+    @functools.cache
+    def index(self, name):
+        return self.name.index(name)
 
     @classmethod
     def identity(cls):
