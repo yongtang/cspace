@@ -85,14 +85,14 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             self.bucket = bucket if bucket else 1000
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
-                (len(self.link) * 6),
+                (len(self.joint) * 1 + len(self.link) * 6),
                 transformer.get_input_embeddings().embedding_dim,
                 dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
             )
             output_embeddings = torch.nn.Linear(
                 transformer.get_input_embeddings().embedding_dim,
-                (1 * len(self.joint)) * self.bucket,
+                (len(self.joint) * self.bucket),
                 dtype=transformer.get_output_embeddings().weight.dtype,
                 bias=False,
             )
@@ -192,25 +192,41 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         )
 
     def encode(self, state, pose, noise=None):
-        assert state.batch == pose.batch, "{} vs. {}".format(state.batch, pose.batch)
 
-        mark = self.forward(state)
+        def f_value(self, state, pose, noise):
 
-        value = tuple(
-            (mark.transform(name).inverse() * pose.transform(name)).log
-            for name in pose.name
-        )
+            def f_pose(mark, pose, noise, index, name):
+                entry = mark.transform(name).inverse() * pose.transform(name)
+                if noise is not None:
+                    xyz, rot = cspace.torch.ops.se3_exp(
+                        torch.select(noise, dim=-2, index=index)
+                    )
+                    entry = entry * cspace.torch.classes.Transform(xyz=xyz, rot=rot)
+                return entry.log
 
-        device = next(iter(value)).device
+            assert state.batch == pose.batch, "{} vs. {}".format(
+                state.batch, pose.batch
+            )
 
-        value = tuple(entry.to(device) for entry in value)
-        value = torch.stack(value, dim=-2)
+            mark = self.forward(state)
 
-        value = value if noise is None else value + noise.to(device)
+            value = tuple(
+                torch.unsqueeze(state.position(self.spec, name), -1)
+                for name in state.name
+            ) + tuple(
+                f_pose(mark, pose, noise, index, name)
+                for index, name in enumerate(pose.name)
+            )
 
-        value = torch.reshape(value, pose.batch + (1, -1))
+            value = tuple(entry.to(next(iter(value)).device) for entry in value)
 
-        return value
+            value = torch.concatenate(value, dim=-1)
+
+            value = torch.reshape(value, pose.batch + (1, -1))
+
+            return value
+
+        return f_value(self, state, pose, noise)
 
     def decode(self, pred):
         pred_value = torch.unflatten(pred, -1, (self.bucket, -1))
@@ -257,14 +273,14 @@ class PolicyKinematics(cspace.torch.classes.Kinematics):
         if model:
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
-                (6 * len(self.link)),
+                (len(self.joint) * 1 + len(self.link) * 6),
                 transformer.get_input_embeddings().embedding_dim,
                 dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
             )
             output_embeddings = torch.nn.Linear(
                 transformer.get_input_embeddings().embedding_dim,
-                (1 * len(self.joint)) * self.bucket,
+                (len(self.joint) * self.bucket),
                 dtype=transformer.get_output_embeddings().weight.dtype,
                 bias=False,
             )
