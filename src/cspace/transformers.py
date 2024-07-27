@@ -83,7 +83,6 @@ class InverseDataset(torch.utils.data.Dataset):
             torch.add(torch.multiply(self.index, prod), prod / 2), zero
         )
 
-        # self.scale = torch.add(torch.multiply(self.index, prod), prod / 2)
         print("XXXXX - SCALE 2: ", self.scale.shape, self.scale)
         self.scale = torch.concatenate(
             (
@@ -197,14 +196,13 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                     )
                     for step in range(self.length)
                 )
-                task = cspace.torch.classes.JointStateCollection.apply(
+                task = self.forward(cspace.torch.classes.JointStateCollection.apply(
                     self.spec,
                     self.joint,
                     torch.select(scale, dim=-2, index=self.length),
                     min=-1.0,
                     max=1.0,
-                )
-                task = self.forward(task)
+                ))
                 for step in range(self.length):
                     print(
                         "XXXXX - ",
@@ -223,16 +221,10 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                     #    max=1.0,
                     # )
                     # pose = self.forward(true)
-                    data = self.encode(state[: step + 1], task, noise)
+                    data = self.encode(state[0: step + 1], task, noise)
                     pred = model(data)
                     print("PRED: --- ", pred.shape)
-                    pred = torch.unflatten(pred, -1, (self.bucket, -1))
-                    print(
-                        "PRED2: --- ",
-                        pred.shape,
-                        torch.select(true, dim=-2, index=step).shape,
-                    )
-                    loss = self.loss_fn(pred, torch.select(true, dim=-2, index=step))
+                    loss = self.loss_fn(torch.unflatten(pred, -1, (self.bucket, -1)), torch.select(true, dim=-2, index=step))
                     accelerator.backward(loss)
                     optimizer.step()
                     scheduler.step()
@@ -331,25 +323,6 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             self.spec, self.joint, pred_scale, min=0.0, max=1.0
         )
         return state
-
-    # def loss(self, pred, true):
-    #    assert true.batch == pred.shape[:-1], "{} vs. {}".format(true.batch, pred.shape)
-
-    #    pred_value = torch.unflatten(pred, -1, (self.bucket, -1))
-    #    assert pred_value.shape[-2:] == (self.bucket, len(self.joint))
-
-    #    true_scale = true.scale(self.spec, min=0.0, max=1.0)
-
-    #    boundaries = torch.linspace(
-    #        1.0 / self.bucket,
-    #        1.0 - 1.0 / self.bucket,
-    #        self.bucket - 1,
-    #        device=true_scale.device,
-    #    )
-
-    #    true_value = torch.bucketize(true_scale, boundaries)
-    #    return self.loss_fn(pred_value, true_value)
-
 
 class PolicyKinematics(cspace.torch.classes.Kinematics):
     def __init__(self, description, *link, base=None, model=None):
