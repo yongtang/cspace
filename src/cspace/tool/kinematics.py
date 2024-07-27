@@ -47,6 +47,7 @@ def main():
             parser.add_argument("--urdf", dest="urdf", type=str, required=True)
             parser.add_argument("--link", dest="link", type=str, nargs="+", default=[])
             parser.add_argument("--bucket", dest="bucket", type=int, default=None)
+            parser.add_argument("--length", dest="length", type=int, default=None)
 
     args = parser.parse_args()
 
@@ -162,13 +163,16 @@ def main():
                 *args.link,
                 model="gpt2",
                 bucket=args.bucket,
+                length=args.length,
             )
         )
         with accelerator.main_process_first():
             dataset = cspace.transformers.InverseDataset(
-                args.total,
                 kinematics.joint,
                 kinematics.link,
+                kinematics.bucket,
+                kinematics.length,
+                args.total,
                 noise=args.noise,
                 seed=args.seed,
             )

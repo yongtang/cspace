@@ -53,13 +53,21 @@ def test_kinematics_forward(
 
 
 @pytest.mark.parametrize(
-    "model,seed,total,batch,noise,epoch",
+    "model,bucket,length,total,seed,noise,batch,epoch",
     [
         pytest.param(
-            "gpt2", 12345, 8 * 1024 * 1024, 32 * 1024, 2, 5, marks=pytest.mark.full
+            "gpt2",
+            None,
+            None,
+            8 * 1024 * 1024,
+            12345,
+            2,
+            32 * 1024,
+            5,
+            marks=pytest.mark.full,
         ),
-        pytest.param("gpt2", 12345, 8, 2, 2, 5),
-        pytest.param("gpt2", 12345, 8, 2, None, 5),
+        pytest.param("gpt2", None, None, 8, 12345, 2, 2, 5),
+        pytest.param("gpt2", None, None, 8, 12345, None, 2, 5),
     ],
 )
 def test_kinematics_inverse(
@@ -68,10 +76,12 @@ def test_kinematics_inverse(
     joint_state_tutorial,
     link_pose_tutorial,
     model,
-    seed,
+    bucket,
+    length,
     total,
-    batch,
+    seed,
     noise,
+    batch,
     epoch,
     request,
     tmp_path_factory,
@@ -88,11 +98,19 @@ def test_kinematics_inverse(
         pathlib.Path(urdf_file_tutorial).read_text(),
         "left_gripper",
         model=model,
+        bucket=bucket,
+        length=length,
     )
 
     with accelerator.main_process_first():
         dataset = cspace.transformers.InverseDataset(
-            total, kinematics.joint, kinematics.link, noise=noise, seed=seed
+            kinematics.joint,
+            kinematics.link,
+            kinematics.bucket,
+            kinematics.length,
+            total,
+            noise=noise,
+            seed=seed,
         )
 
     kinematics.train(
