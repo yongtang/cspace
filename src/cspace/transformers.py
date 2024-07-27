@@ -137,21 +137,23 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
     def inverse(self, pose):
         with torch.no_grad():
-            zero = cspace.torch.classes.JointStateCollection.zero(
-                self.spec, self.joint, pose.batch
-            )
 
-            data = self.encode(zero, pose)
+            state = [cspace.torch.classes.JointStateCollection.zero(
+                  self.spec, self.joint, pose.batch
+            )]
+            
+            for step in range(self.length):
+              data = self.encode(state, pose)
 
-            data = data if len(pose.batch) else torch.unsqueeze(data, 0)
+              data = data if len(pose.batch) else torch.unsqueeze(data, 0)
 
-            pred = self.model(data)
+              pred = self.model(data)
 
-            pred = pred if len(pose.batch) else torch.squeeze(pred, 0)
+              pred = pred if len(pose.batch) else torch.squeeze(pred, 0)
 
-            state = self.decode(pred)
+              state = state + self.decode(state, pred)
 
-            return state
+            return state[-1]
 
     def train(self, *, logger, accelerator, dataset, batch=None, epoch=None, save=None):
         epoch = epoch if epoch else 1
@@ -304,23 +306,23 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
         return value
 
-    def decode(self, pred):
-        pred_value = torch.unflatten(pred, -1, (self.bucket, -1))
-        assert pred_value.shape[-2:] == (self.bucket, len(self.joint))
+    def decode(self, state, pred):
+        pred = torch.unflatten(pred, -1, (self.bucket, -1))
+        assert pred.shape[-2:] == (self.bucket, len(self.joint))
 
-        pred_index = torch.argmax(pred_value, dim=-2)
+        index = torch.argmax(pred, dim=-2)
 
         indices = torch.linspace(
             0.5 / self.bucket,
             1.0 - 0.5 / self.bucket,
             self.bucket,
-            device=pred_index.device,
+            device=index.device,
         )
 
-        pred_scale = indices[pred_index]
+        scale = indices[index]
 
         state = cspace.torch.classes.JointStateCollection.apply(
-            self.spec, self.joint, pred_scale, min=0.0, max=1.0
+            self.spec, self.joint, scale, min=0.0, max=1.0
         )
         return state
 
