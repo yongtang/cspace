@@ -111,11 +111,6 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
 
         return cls(joint, position)
 
-    @classmethod
-    def zero(cls, spec, joint, batch=None):
-        shape = tuple(batch) + tuple([len(joint)]) if batch else tuple([len(joint)])
-        return cls.apply(spec, joint, torch.zeros(shape), min=-1.0, max=1.0)
-
     @functools.cache
     def index(self, name):
         return self.name.index(name)

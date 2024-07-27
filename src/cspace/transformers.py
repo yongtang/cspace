@@ -74,16 +74,12 @@ class InverseDataset(torch.utils.data.Dataset):
             torch.tensor(1.0 / bucket, dtype=torch.float64).expand([1, length, 1]),
             dim=-2,
         )
-        print("XXXXX - PROD: ", prod)
         zero = prod * bucket / 2.0
-        print("XXXXX - ZERO: ", zero)
 
-        print("XXXXX - SCALE 1: ", self.index)
         self.scale = torch.sub(
             torch.add(torch.multiply(self.index, prod), prod / 2), zero
         )
 
-        print("XXXXX - SCALE 2: ", self.scale.shape, self.scale)
         self.scale = torch.concatenate(
             (
                 torch.zeros((total, 1, len(joint)), dtype=torch.float64),
@@ -92,15 +88,9 @@ class InverseDataset(torch.utils.data.Dataset):
             dim=-2,
         )
 
-        print("XXXXX - SCALE 3: ", self.scale.shape, self.scale)
-
         self.scale = torch.cumsum(self.scale, dim=-2)  # (-0.5, 0.5)
 
-        print("XXXXX - SCALE 4: ", self.scale.shape, self.scale)
-
         self.scale = self.scale * 2.0  # (-1.0, 1.0)
-
-        print("XXXXX - SCALE 5: ", self.scale.shape, self.scale)
 
     def __len__(self):
         return self.scale.shape[0]
@@ -137,10 +127,13 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
     def inverse(self, pose):
         with torch.no_grad():
-
             state = [
-                cspace.torch.classes.JointStateCollection.zero(
-                    self.spec, self.joint, pose.batch
+                cspace.torch.classes.JointStateCollection.apply(
+                    self.spec,
+                    self.joint,
+                    torch.zeros(pose.batch + tuple([len(self.joint)])),
+                    min=-1.0,
+                    max=1.0,
                 )
             ]
 
@@ -153,7 +146,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
                 pred = pred if len(pose.batch) else torch.squeeze(pred, 0)
 
-                state = state + self.decode(state, pred)
+                state.append(self.decode(state, pred))
 
             return state[-1]
 
@@ -210,18 +203,8 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                     )
                 )
                 for step in range(self.length):
-                    print(
-                        "XXXXX - ",
-                        step,
-                        batch,
-                        scale.shape,
-                        noise.shape,
-                        scale,
-                    )
-
                     data = self.encode(state[0 : step + 1], task, noise)
                     pred = model(data)
-                    print("PRED: --- ", pred.shape)
                     loss = self.loss_fn(
                         torch.unflatten(pred, -1, (self.bucket, -1)),
                         torch.select(true, dim=-2, index=step),
@@ -290,9 +273,11 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
             return value
 
-        return torch.concatenate(
-            tuple(f_value(self, entry, task, noise) for entry in state), dim=-2
-        )
+        value = tuple(f_value(self, entry, task, noise) for entry in state)
+
+        value = tuple(entry.to(next(iter(value)).device) for entry in value)
+
+        return torch.concatenate(value, dim=-2)
 
     def decode(self, state, pred):
         pred = torch.unflatten(pred, -1, (self.bucket, -1))
@@ -300,17 +285,19 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
         index = torch.argmax(pred, dim=-2)
 
-        indices = torch.linspace(
-            0.5 / self.bucket,
-            1.0 - 0.5 / self.bucket,
-            self.bucket,
-            device=index.device,
-        )
+        prod = torch.cumprod(
+            torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand([len(state)]),
+            dim=0,
+        )[-1]
+        zero = prod * self.bucket / 2.0
 
-        scale = indices[index]
+        scale = (
+            state[-1].scale(self.spec, min=-1.0, max=1.0).to(index.device)
+            + torch.sub(torch.add(torch.multiply(index, prod), prod / 2), zero) * 2.0
+        )  # (-1.0, 1.0)
 
         state = cspace.torch.classes.JointStateCollection.apply(
-            self.spec, self.joint, scale, min=0.0, max=1.0
+            self.spec, self.joint, scale, min=-1.0, max=1.0
         )
         return state
 

@@ -136,8 +136,12 @@ def test_kinematics_inverse(
     inverse = kinematics.inverse(pose)
     pred = kinematics.forward(inverse)
 
-    zero = cspace.torch.classes.JointStateCollection.zero(
-        kinematics.spec, kinematics.joint
+    zero = cspace.torch.classes.JointStateCollection.apply(
+        kinematics.spec,
+        kinematics.joint,
+        torch.zeros([len(kinematics.joint)]),
+        min=-1.0,
+        max=1.0,
     )
     mark = kinematics.forward(zero)
     logger.info(
