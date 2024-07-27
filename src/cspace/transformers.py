@@ -138,20 +138,22 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
     def inverse(self, pose):
         with torch.no_grad():
 
-            state = [cspace.torch.classes.JointStateCollection.zero(
-                  self.spec, self.joint, pose.batch
-            )]
-            
+            state = [
+                cspace.torch.classes.JointStateCollection.zero(
+                    self.spec, self.joint, pose.batch
+                )
+            ]
+
             for step in range(self.length):
-              data = self.encode(state, pose)
+                data = self.encode(state, pose)
 
-              data = data if len(pose.batch) else torch.unsqueeze(data, 0)
+                data = data if len(pose.batch) else torch.unsqueeze(data, 0)
 
-              pred = self.model(data)
+                pred = self.model(data)
 
-              pred = pred if len(pose.batch) else torch.squeeze(pred, 0)
+                pred = pred if len(pose.batch) else torch.squeeze(pred, 0)
 
-              state = state + self.decode(state, pred)
+                state = state + self.decode(state, pred)
 
             return state[-1]
 
@@ -198,13 +200,15 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                     )
                     for step in range(self.length)
                 )
-                task = self.forward(cspace.torch.classes.JointStateCollection.apply(
-                    self.spec,
-                    self.joint,
-                    torch.select(scale, dim=-2, index=self.length),
-                    min=-1.0,
-                    max=1.0,
-                ))
+                task = self.forward(
+                    cspace.torch.classes.JointStateCollection.apply(
+                        self.spec,
+                        self.joint,
+                        torch.select(scale, dim=-2, index=self.length),
+                        min=-1.0,
+                        max=1.0,
+                    )
+                )
                 for step in range(self.length):
                     print(
                         "XXXXX - ",
@@ -215,18 +219,13 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                         scale,
                     )
 
-                    # true = cspace.torch.classes.JointStateCollection.apply(
-                    #    self.spec,
-                    #    self.joint,
-                    #    torch.sum(scale, dim=-3, keepdim=True),
-                    #    min=0.0,
-                    #    max=1.0,
-                    # )
-                    # pose = self.forward(true)
-                    data = self.encode(state[0: step + 1], task, noise)
+                    data = self.encode(state[0 : step + 1], task, noise)
                     pred = model(data)
                     print("PRED: --- ", pred.shape)
-                    loss = self.loss_fn(torch.unflatten(pred, -1, (self.bucket, -1)), torch.select(true, dim=-2, index=step))
+                    loss = self.loss_fn(
+                        torch.unflatten(pred, -1, (self.bucket, -1)),
+                        torch.select(true, dim=-2, index=step),
+                    )
                     accelerator.backward(loss)
                     optimizer.step()
                     scheduler.step()
@@ -235,14 +234,15 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                     pred = accelerator.gather_for_metrics(pred)
                     total += loss.sum().item()
                     count += len(pred)
-                    logger.info(
-                        "[Train] ----- Epoch {} [{}/{}] - Loss: {} [/Train]".format(
-                            index,
-                            count,
-                            len(dataloader.dataset),
-                            total / count,
-                        )
+                logger.info(
+                    "[Train] ----- Epoch {} [({}/{}) x {}] - Loss: {} [/Train]".format(
+                        index,
+                        count,
+                        len(dataloader.dataset),
+                        self.length,
+                        total / (count * self.length),
                     )
+                )
             (
                 accelerator.save(
                     self,
@@ -258,15 +258,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         )
 
     def encode(self, state, task, noise=None):
-
         def f_value(self, entry, task, noise):
-            print(
-                "XXXXXX - ENTRY: ",
-                entry.batch,
-                task.batch,
-                None if noise is None else noise.shape,
-            )
-
             def f_task(mark, task, noise, index, name):
                 entry = mark.transform(name).inverse() * task.transform(name)
                 if noise is not None:
@@ -298,13 +290,9 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
             return value
 
-        value = tuple(f_value(self, entry, task, noise) for entry in state)
-        print("VALUE: ", tuple(e.shape for e in value))
-
-        value = torch.concatenate(value, dim=-2)
-        print("VALUE: ", value.shape)
-
-        return value
+        return torch.concatenate(
+            tuple(f_value(self, entry, task, noise) for entry in state), dim=-2
+        )
 
     def decode(self, state, pred):
         pred = torch.unflatten(pred, -1, (self.bucket, -1))
@@ -325,6 +313,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             self.spec, self.joint, scale, min=0.0, max=1.0
         )
         return state
+
 
 class PolicyKinematics(cspace.torch.classes.Kinematics):
     def __init__(self, description, *link, base=None, model=None):
