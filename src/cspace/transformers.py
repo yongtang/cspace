@@ -59,24 +59,20 @@ class InverseDataset(torch.utils.data.Dataset):
         self.index = torch.randint(
             low=0,
             high=bucket,
-            size=(total, length, len(joint), 1),
+            size=(total, length, len(joint)),
             generator=generator,
             dtype=torch.int64,
         )
         if not noise:
-            self.noise = torch.zeros((total, length, len(link), 6), dtype=torch.float64)
+            self.noise = torch.zeros((total, len(link), 6), dtype=torch.float64)
         else:
-            std = torch.tensor(0.01, dtype=torch.float64).expand(
-                total, length, len(link), 6
-            )
-            mean = torch.tensor(0.0, dtype=torch.float64).expand(
-                total, length, len(link), 6
-            )
+            std = torch.tensor(0.01, dtype=torch.float64).expand(total, len(link), 6)
+            mean = torch.tensor(0.0, dtype=torch.float64).expand(total, len(link), 6)
             self.noise = torch.normal(mean, std, generator=generator)
 
         prod = torch.cumprod(
-            torch.tensor(1.0 / bucket, dtype=torch.float64).expand([1, length, 1, 1]),
-            dim=-3,
+            torch.tensor(1.0 / bucket, dtype=torch.float64).expand([1, length, 1]),
+            dim=-2,
         )
         print("XXXXX - PROD: ", prod)
         zero = prod * bucket / 2.0
@@ -91,15 +87,15 @@ class InverseDataset(torch.utils.data.Dataset):
         print("XXXXX - SCALE 2: ", self.scale.shape, self.scale)
         self.scale = torch.concatenate(
             (
-                torch.zeros((total, 1, len(joint), 1), dtype=torch.float64),
+                torch.zeros((total, 1, len(joint)), dtype=torch.float64),
                 self.scale,
             ),
-            dim=-3,
+            dim=-2,
         )
 
         print("XXXXX - SCALE 3: ", self.scale.shape, self.scale)
 
-        self.scale = torch.cumsum(self.scale, dim=-3)  # (-0.5, 0.5)
+        self.scale = torch.cumsum(self.scale, dim=-2)  # (-0.5, 0.5)
 
         print("XXXXX - SCALE 4: ", self.scale.shape, self.scale)
 
@@ -187,10 +183,6 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             dataloader, self.model, optimizer, scheduler
         )
 
-        #zero = cspace.torch.classes.JointStateCollection.zero(
-        #    self.spec, self.joint, [batch]
-        #)
-
         model.train()
         for index in range(epoch):
             total, count = 0, 0
@@ -199,19 +191,19 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                     cspace.torch.classes.JointStateCollection.apply(
                         self.spec,
                         self.joint,
-                        torch.select(scale, dim=-3, index=step).squeeze(-1),
+                        torch.select(scale, dim=-2, index=step),
                         min=-1.0,
                         max=1.0,
                     )
                     for step in range(self.length)
                 )
                 task = cspace.torch.classes.JointStateCollection.apply(
-                        self.spec,
-                        self.joint,
-                        torch.select(scale, dim=-3, index=self.length).squeeze(-1),
-                        min=-1.0,
-                        max=1.0,
-                    )
+                    self.spec,
+                    self.joint,
+                    torch.select(scale, dim=-2, index=self.length),
+                    min=-1.0,
+                    max=1.0,
+                )
                 task = self.forward(task)
                 for step in range(self.length):
                     print(
@@ -230,10 +222,17 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                     #    min=0.0,
                     #    max=1.0,
                     # )
-                    #pose = self.forward(true)
-                    data = self.encode(state[:step+1], task, noise)
+                    # pose = self.forward(true)
+                    data = self.encode(state[: step + 1], task, noise)
                     pred = model(data)
-                    loss = self.loss(pred, true[step])
+                    print("PRED: --- ", pred.shape)
+                    pred = torch.unflatten(pred, -1, (self.bucket, -1))
+                    print(
+                        "PRED2: --- ",
+                        pred.shape,
+                        torch.select(true, dim=-2, index=step).shape,
+                    )
+                    loss = self.loss_fn(pred, torch.select(true, dim=-2, index=step))
                     accelerator.backward(loss)
                     optimizer.step()
                     scheduler.step()
@@ -267,6 +266,12 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
     def encode(self, state, task, noise=None):
 
         def f_value(self, entry, task, noise):
+            print(
+                "XXXXXX - ENTRY: ",
+                entry.batch,
+                task.batch,
+                None if noise is None else noise.shape,
+            )
 
             def f_task(mark, task, noise, index, name):
                 entry = mark.transform(name).inverse() * task.transform(name)
@@ -302,6 +307,9 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         value = tuple(f_value(self, entry, task, noise) for entry in state)
         print("VALUE: ", tuple(e.shape for e in value))
 
+        value = torch.concatenate(value, dim=-2)
+        print("VALUE: ", value.shape)
+
         return value
 
     def decode(self, pred):
@@ -324,23 +332,23 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         )
         return state
 
-    def loss(self, pred, true):
-        assert true.batch == pred.shape[:-1], "{} vs. {}".format(true.batch, pred.shape)
+    # def loss(self, pred, true):
+    #    assert true.batch == pred.shape[:-1], "{} vs. {}".format(true.batch, pred.shape)
 
-        pred_value = torch.unflatten(pred, -1, (self.bucket, -1))
-        assert pred_value.shape[-2:] == (self.bucket, len(self.joint))
+    #    pred_value = torch.unflatten(pred, -1, (self.bucket, -1))
+    #    assert pred_value.shape[-2:] == (self.bucket, len(self.joint))
 
-        true_scale = true.scale(self.spec, min=0.0, max=1.0)
+    #    true_scale = true.scale(self.spec, min=0.0, max=1.0)
 
-        boundaries = torch.linspace(
-            1.0 / self.bucket,
-            1.0 - 1.0 / self.bucket,
-            self.bucket - 1,
-            device=true_scale.device,
-        )
+    #    boundaries = torch.linspace(
+    #        1.0 / self.bucket,
+    #        1.0 - 1.0 / self.bucket,
+    #        self.bucket - 1,
+    #        device=true_scale.device,
+    #    )
 
-        true_value = torch.bucketize(true_scale, boundaries)
-        return self.loss_fn(pred_value, true_value)
+    #    true_value = torch.bucketize(true_scale, boundaries)
+    #    return self.loss_fn(pred_value, true_value)
 
 
 class PolicyKinematics(cspace.torch.classes.Kinematics):
