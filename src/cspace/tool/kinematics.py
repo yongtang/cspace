@@ -42,6 +42,7 @@ def main():
         parser.add_argument("--repeat", dest="repeat", type=int, default=5)
         parser.add_argument("--noise", dest="noise", type=int, default=None)
         parser.add_argument("--seed", dest="seed", type=int, default=0)
+        parser.add_argument("--lr", dest="lr", type=float, default=None)
         load = parser.parse_known_args()[0].load
 
         if not load:
@@ -187,6 +188,7 @@ def main():
                 batch=args.batch,
                 epoch=args.epoch,
                 save=args.save,
+                lr=args.lr,
             )
 
 

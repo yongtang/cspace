@@ -150,11 +150,22 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
             return state[-1]
 
-    def train(self, *, logger, accelerator, dataset, batch=None, epoch=None, save=None):
+    def train(
+        self,
+        *,
+        logger,
+        accelerator,
+        dataset,
+        batch=None,
+        epoch=None,
+        save=None,
+        lr=None,
+    ):
         epoch = epoch if epoch else 1
         batch = batch if batch else 128
+        lr = lr if lr else 1e-5
 
-        optimizer = torch.optim.AdamW(self.model.parameters())
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.ChainedScheduler(
             [
                 torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9),
