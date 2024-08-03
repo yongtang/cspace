@@ -82,7 +82,11 @@ def main():
             pred = kinematics.forward(inverse)
 
             zero = cspace.torch.classes.JointStateCollection.zero(
-                kinematics.spec, kinematics.joint
+                kinematics.spec,
+                kinematics.joint,
+                torch.zeros(pose.batch + tuple([len(self.joint)])),
+                min=-1.0,
+                max=1.0,
             )
             mark = kinematics.forward(zero)
         logger.info(
