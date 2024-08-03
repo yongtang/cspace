@@ -84,7 +84,7 @@ def main():
             zero = cspace.torch.classes.JointStateCollection.apply(
                 kinematics.spec,
                 kinematics.joint,
-                torch.zeros(pose.batch + tuple([len(self.joint)])),
+                torch.zeros(pose.batch + tuple([len(kinematics.joint)])),
                 min=-1.0,
                 max=1.0,
             )
