@@ -81,7 +81,7 @@ def main():
             inverse = kinematics.inverse(pose)
             pred = kinematics.forward(inverse)
 
-            zero = cspace.torch.classes.JointStateCollection.zero(
+            zero = cspace.torch.classes.JointStateCollection.apply(
                 kinematics.spec,
                 kinematics.joint,
                 torch.zeros(pose.batch + tuple([len(self.joint)])),
