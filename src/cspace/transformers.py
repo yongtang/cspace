@@ -121,29 +121,88 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             self.model = Model(transformer, input_embeddings, output_embeddings)
 
     def inverse(self, pose):
+
+        repeat = 16
+
         with torch.no_grad():
+            position = torch.stack(
+                tuple(pose.position(name) for name in pose.name), dim=-1
+            )
+            orientation = torch.stack(
+                tuple(pose.orientation(name) for name in pose.name), dim=-1
+            )
+
+            position = position.unsqueeze(-3).expand(
+                *(pose.batch + (repeat, 3, len(pose.name)))
+            )
+            orientation = orientation.unsqueeze(-3).expand(
+                *(pose.batch + (repeat, 4, len(pose.name)))
+            )
+
+            transform = cspace.torch.classes.Transform(
+                xyz=torch.transpose(position, -1, -2),
+                rot=cspace.torch.ops.qua_to_rot(torch.transpose(orientation, -1, -2)),
+            )
+
+            task = cspace.torch.classes.LinkPoseCollection(
+                pose.base, pose.name, position, orientation
+            )
+
             state = [
                 cspace.torch.classes.JointStateCollection.apply(
                     self.spec,
                     self.joint,
-                    torch.zeros(pose.batch + tuple([len(self.joint)])),
+                    torch.zeros(task.batch + tuple([len(self.joint)])),
                     min=-1.0,
                     max=1.0,
                 )
             ]
 
             for step in range(self.length):
-                data = self.encode(state, pose)
-
-                data = data if len(pose.batch) else torch.unsqueeze(data, 0)
+                data = self.encode(state, task)
 
                 pred = self.model(data)
 
-                pred = pred if len(pose.batch) else torch.squeeze(pred, 0)
-
                 state.append(self.decode(state, pred))
 
-            return state[-1]
+            state = state[-1]
+
+            task = self.forward(state)
+
+            position = torch.stack(
+                tuple(task.position(name) for name in pose.name), dim=-1
+            )
+            orientation = torch.stack(
+                tuple(task.orientation(name) for name in pose.name), dim=-1
+            )
+
+            measure = (
+                transform.inverse()
+                * cspace.torch.classes.Transform(
+                    xyz=torch.transpose(position, -1, -2),
+                    rot=cspace.torch.ops.qua_to_rot(
+                        torch.transpose(orientation, -1, -2)
+                    ),
+                )
+            ).log
+
+            loss = torch.sqrt(
+                torch.sum(torch.square(torch.flatten(measure, -2, -1)), dim=-1)
+            )
+
+            selection = torch.min(loss, dim=-1)
+            selection = torch.reshape(selection.indices, [-1])
+
+            position = torch.stack(
+                tuple(state.position(self.spec, name) for name in state.name), dim=-1
+            )
+            position = torch.reshape(position, (-1, repeat, len(self.joint)))
+            position = torch.index_select(position, dim=-2, index=selection)
+            position = torch.reshape(position, pose.batch + tuple([len(self.joint)]))
+
+            state = cspace.torch.classes.JointStateCollection(self.joint, position)
+
+            return state
 
     def train(
         self,

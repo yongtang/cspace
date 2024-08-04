@@ -90,7 +90,7 @@ def test_kinematics_inverse(
     )
 
     accelerator = accelerate.Accelerator()
-    logger = accelerate.logging.get_logger(__name__)
+    logger = accelerate.logging.get_logger(__name__, log_level="INFO")
 
     kinematics = cspace.transformers.InverseKinematics(
         pathlib.Path(urdf_file_tutorial).read_text(),
