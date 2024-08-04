@@ -53,21 +53,20 @@ def test_kinematics_forward(
 
 
 @pytest.mark.parametrize(
-    "model,bucket,length,total,seed,noise,batch,epoch",
+    "model,bucket,length,noise,total,batch,repeat",
     [
         pytest.param(
             "gpt2",
-            None,
+            2,
+            10,
             None,
             8 * 1024 * 1024,
-            12345,
-            2,
             32 * 1024,
             5,
             marks=pytest.mark.full,
         ),
-        pytest.param("gpt2", None, None, 8, 12345, 2, 2, 5),
-        pytest.param("gpt2", None, None, 8, 12345, None, 2, 5),
+        pytest.param("gpt2", 2, 10, None, 8, 2, 5),
+        pytest.param("gpt2", 2, 10, 2, 8, 2, 5),
     ],
 )
 def test_kinematics_inverse(
@@ -78,11 +77,10 @@ def test_kinematics_inverse(
     model,
     bucket,
     length,
-    total,
-    seed,
     noise,
+    total,
     batch,
-    epoch,
+    repeat,
     request,
     tmp_path_factory,
 ):
@@ -102,24 +100,14 @@ def test_kinematics_inverse(
         length=length,
     )
 
-    with accelerator.main_process_first():
-        dataset = cspace.transformers.InverseDataset(
-            kinematics.joint,
-            kinematics.link,
-            kinematics.bucket,
-            kinematics.length,
-            total,
-            noise=noise,
-            seed=seed,
-        )
-
     kinematics.train(
         logger=logger,
         accelerator=accelerator,
-        dataset=dataset,
-        batch=batch,
-        epoch=epoch,
         save=saved,
+        batch=batch,
+        total=total,
+        repeat=repeat,
+        noise=noise,
     )
 
     kinematics = torch.load(saved)

@@ -52,23 +52,18 @@ class Model(torch.nn.Module):
 
 
 class InverseDataset(torch.utils.data.Dataset):
-    def __init__(self, joint, link, bucket, length, total, noise=None, seed=None):
+    def __init__(self, joint, link, bucket, length, total, noise=None):
         total = total if noise is None else (noise * total)
-        generator = torch.Generator().manual_seed(seed)
 
         self.index = torch.randint(
-            low=0,
-            high=bucket,
-            size=(total, length, len(joint)),
-            generator=generator,
-            dtype=torch.int64,
+            low=0, high=bucket, size=(total, length, len(joint)), dtype=torch.int64
         )
         if not noise:
             self.noise = torch.zeros((total, len(link), 6), dtype=torch.float64)
         else:
             std = torch.tensor(0.01, dtype=torch.float64).expand(total, len(link), 6)
             mean = torch.tensor(0.0, dtype=torch.float64).expand(total, len(link), 6)
-            self.noise = torch.normal(mean, std, generator=generator)
+            self.noise = torch.normal(mean, std)
 
         prod = torch.cumprod(
             torch.tensor(1.0 / bucket, dtype=torch.float64).expand([1, length, 1]),
@@ -155,14 +150,16 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         *,
         logger,
         accelerator,
-        dataset,
-        batch=None,
-        epoch=None,
         save=None,
+        batch=None,
+        total=None,
+        repeat=None,
         lr=None,
+        noise=None,
     ):
-        epoch = epoch if epoch else 1
         batch = batch if batch else 128
+        total = total if total else 1024
+        repeat = repeat if repeat else 1
         lr = lr if lr else 1e-5
 
         optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr)
@@ -175,25 +172,33 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
             ]
         )
 
-        logger.info(
-            "[Train] ----- Dataset: {} (epoch={}, batch={}) - creation".format(
-                len(dataset), epoch, batch
+        for r in range(repeat):
+            logger.info(
+                "[Train] ----- Dataset: (r={}/{}, total={}, batch={}) - creation".format(
+                    r, repeat, total, batch
+                )
             )
-        )
-        dataloader = torch.utils.data.DataLoader(
-            dataset,
-            batch_size=batch,
-            shuffle=True,
-        )
+            dataset = cspace.transformers.InverseDataset(
+                self.joint,
+                self.link,
+                self.bucket,
+                self.length,
+                total,
+                noise=noise,
+            )
+            dataloader = torch.utils.data.DataLoader(
+                dataset,
+                batch_size=batch,
+                shuffle=True,
+            )
 
-        dataloader, model, optimizer, scheduler = accelerator.prepare(
-            dataloader, self.model, optimizer, scheduler
-        )
+            dataloader, model, optimizer, scheduler = accelerator.prepare(
+                dataloader, self.model, optimizer, scheduler
+            )
+            model.train()
 
-        model.train()
-        for index in range(epoch):
-            total, count = 0, 0
-            for batch, (scale, true, noise) in enumerate(dataloader):
+            loss_total, loss_count = 0, 0
+            for b, (scale, true, delta) in enumerate(dataloader):
                 state = tuple(
                     cspace.torch.classes.JointStateCollection.apply(
                         self.spec,
@@ -214,7 +219,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                     )
                 )
                 for step in range(self.length):
-                    data = self.encode(state[0 : step + 1], task, noise)
+                    data = self.encode(state[0 : step + 1], task, delta)
                     pred = model(data)
                     loss = self.loss_fn(
                         torch.unflatten(pred, -1, (self.bucket, -1)),
@@ -226,15 +231,11 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                     optimizer.zero_grad()
                     loss = accelerator.gather_for_metrics(loss)
                     pred = accelerator.gather_for_metrics(pred)
-                    total += loss.sum().item()
-                    count += len(pred)
+                    loss_total += loss.sum().item()
+                    loss_count += len(pred)
                 logger.info(
-                    "[Train] ----- Epoch {} [({}/{}) x {}] - Loss: {} [/Train]".format(
-                        index,
-                        count,
-                        len(dataloader.dataset),
-                        self.length,
-                        total / (count * self.length),
+                    "[Train] ----- Dataset: (r={}/{}, total={}, batch={}) - b={} - Loss: {}".format(
+                        r, repeat, total, batch, b, loss_total / loss_count
                     )
                 )
             (
@@ -245,11 +246,11 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 if save
                 else None
             )
-        logger.info(
-            "[Train] ----- Dataset: {} (epoch={}, batch={}) - complete".format(
-                len(dataloader.dataset), epoch, dataloader.batch_size
+            logger.info(
+                "[Train] ----- Dataset: (r={}/{}, total={}, batch={}) - complete".format(
+                    r, repeat, total, batch
+                )
             )
-        )
 
     def encode(self, state, task, noise=None):
         def f_value(self, entry, task, noise):

@@ -10,14 +10,15 @@ import accelerate
 
 
 def main():
-    if "--" in sys.argv:
-        index = sys.argv.index("--")
+    if "--torchrun" in sys.argv:
+        index = sys.argv.index("--torchrun")
         with tempfile.NamedTemporaryFile(
             suffix=str(pathlib.Path(__file__)).replace("/", "_._")
         ) as f:
             pathlib.Path(f.name).write_text(pathlib.Path(__file__).read_text())
-            sys.argv = sys.argv[:index] + [f.name] + sys.argv[index + 1 :]
-
+            sys.argv = (
+                sys.argv[:1] + sys.argv[index + 1 :] + [f.name] + sys.argv[1:index]
+            )
             sys.exit(torch.distributed.run.main())
 
     parser = argparse.ArgumentParser()
@@ -34,14 +35,14 @@ def main():
         parser.add_argument("--load", dest="load", type=str, required=True)
         parser.add_argument("--joint", dest="joint", type=str, nargs="+", required=True)
     else:
-        parser.add_argument("--load", dest="load", type=str, default=None)
         parser.add_argument("--save", dest="save", type=str, required=True)
-        parser.add_argument("--total", dest="total", type=int, required=True)
-        parser.add_argument("--batch", dest="batch", type=int, default=16)
-        parser.add_argument("--epoch", dest="epoch", type=int, default=5)
-        parser.add_argument("--repeat", dest="repeat", type=int, default=5)
+
+        parser.add_argument("--load", dest="load", type=str, default=None)
+
+        parser.add_argument("--total", dest="total", type=int, default=None)
+        parser.add_argument("--batch", dest="batch", type=int, default=None)
+        parser.add_argument("--repeat", dest="repeat", type=int, default=None)
         parser.add_argument("--noise", dest="noise", type=int, default=None)
-        parser.add_argument("--seed", dest="seed", type=int, default=0)
         parser.add_argument("--lr", dest="lr", type=float, default=None)
         load = parser.parse_known_args()[0].load
 
@@ -172,28 +173,15 @@ def main():
                 length=args.length,
             )
         )
-        for r in range(args.repeat):
-            logger.info("Repeat {}".format(r))
-            with accelerator.main_process_first():
-                dataset = cspace.transformers.InverseDataset(
-                    kinematics.joint,
-                    kinematics.link,
-                    kinematics.bucket,
-                    kinematics.length,
-                    args.total,
-                    noise=args.noise,
-                    seed=args.seed,
-                )
-
-            kinematics.train(
-                logger=logger,
-                accelerator=accelerator,
-                dataset=dataset,
-                batch=args.batch,
-                epoch=args.epoch,
-                save=args.save,
-                lr=args.lr,
-            )
+        kinematics.train(
+            logger=logger,
+            accelerator=accelerator,
+            save=args.save,
+            batch=args.batch,
+            total=args.total,
+            repeat=args.repeat,
+            lr=args.lr,
+        )
 
 
 if __name__ == "__main__":
