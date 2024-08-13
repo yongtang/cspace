@@ -41,7 +41,6 @@ def main():
 
         parser.add_argument("--total", dest="total", type=int, default=None)
         parser.add_argument("--batch", dest="batch", type=int, default=None)
-        parser.add_argument("--repeat", dest="repeat", type=int, default=None)
         parser.add_argument("--noise", dest="noise", type=int, default=None)
         parser.add_argument("--lr", dest="lr", type=float, default=None)
         load = parser.parse_known_args()[0].load
@@ -179,7 +178,6 @@ def main():
             save=args.save,
             batch=args.batch,
             total=args.total,
-            repeat=args.repeat,
             lr=args.lr,
         )
 

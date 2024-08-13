@@ -100,15 +100,15 @@ def test_kinematics_inverse(
         length=length,
     )
 
-    kinematics.train(
-        logger=logger,
-        accelerator=accelerator,
-        save=saved,
-        batch=batch,
-        total=total,
-        repeat=repeat,
-        noise=noise,
-    )
+    for _ in range(repeat):
+        kinematics.train(
+            logger=logger,
+            accelerator=accelerator,
+            save=saved,
+            batch=batch,
+            total=total,
+            noise=noise,
+        )
 
     kinematics = torch.load(saved)
 
