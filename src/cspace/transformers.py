@@ -234,66 +234,69 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                 total, batch
             )
         )
-        dataset = cspace.transformers.InverseDataset(
-            self.joint,
-            self.link,
-            self.bucket,
-            self.length,
-            total,
-            noise=noise,
-        )
-        dataloader = torch.utils.data.DataLoader(
-            dataset,
-            batch_size=batch,
-            shuffle=True,
-        )
 
-        dataloader, model, optimizer, scheduler = accelerator.prepare(
-            dataloader, self.model, optimizer, scheduler
-        )
-        model.train()
+        if total > 0:
 
-        loss_total, loss_count = 0, 0
-        for index, (scale, true, delta) in enumerate(dataloader):
-            state = tuple(
-                cspace.torch.classes.JointStateCollection.apply(
-                    self.spec,
-                    self.joint,
-                    torch.select(scale, dim=-2, index=step),
-                    min=-1.0,
-                    max=1.0,
-                )
-                for step in range(self.length)
+            dataset = cspace.transformers.InverseDataset(
+                self.joint,
+                self.link,
+                self.bucket,
+                self.length,
+                total,
+                noise=noise,
             )
-            task = self.forward(
-                cspace.torch.classes.JointStateCollection.apply(
-                    self.spec,
-                    self.joint,
-                    torch.select(scale, dim=-2, index=self.length),
-                    min=-1.0,
-                    max=1.0,
-                )
+            dataloader = torch.utils.data.DataLoader(
+                dataset,
+                batch_size=batch,
+                shuffle=True,
             )
-            for step in range(self.length):
-                data = self.encode(state[0 : step + 1], task, delta)
-                pred = model(data)
-                loss = self.loss_fn(
-                    torch.unflatten(pred, -1, (self.bucket, -1)),
-                    torch.select(true, dim=-2, index=step),
-                )
-                accelerator.backward(loss)
-                optimizer.step()
-                scheduler.step()
-                optimizer.zero_grad()
-                loss = accelerator.gather_for_metrics(loss)
-                pred = accelerator.gather_for_metrics(pred)
-                loss_total += loss.sum().item()
-                loss_count += len(pred)
-            logger.info(
-                "[Train] ----- Dataset: (total={}, batch=/{}{}) - Loss: {}".format(
-                    total, index, batch, loss_total / loss_count
-                )
+
+            dataloader, model, optimizer, scheduler = accelerator.prepare(
+                dataloader, self.model, optimizer, scheduler
             )
+            model.train()
+
+            loss_total, loss_count = 0, 0
+            for index, (scale, true, delta) in enumerate(dataloader):
+                state = tuple(
+                    cspace.torch.classes.JointStateCollection.apply(
+                        self.spec,
+                        self.joint,
+                        torch.select(scale, dim=-2, index=step),
+                        min=-1.0,
+                        max=1.0,
+                    )
+                    for step in range(self.length)
+                )
+                task = self.forward(
+                    cspace.torch.classes.JointStateCollection.apply(
+                        self.spec,
+                        self.joint,
+                        torch.select(scale, dim=-2, index=self.length),
+                        min=-1.0,
+                        max=1.0,
+                    )
+                )
+                for step in range(self.length):
+                    data = self.encode(state[0 : step + 1], task, delta)
+                    pred = model(data)
+                    loss = self.loss_fn(
+                        torch.unflatten(pred, -1, (self.bucket, -1)),
+                        torch.select(true, dim=-2, index=step),
+                    )
+                    accelerator.backward(loss)
+                    optimizer.step()
+                    scheduler.step()
+                    optimizer.zero_grad()
+                    loss = accelerator.gather_for_metrics(loss)
+                    pred = accelerator.gather_for_metrics(pred)
+                    loss_total += loss.sum().item()
+                    loss_count += len(pred)
+                logger.info(
+                    "[Train] ----- Dataset: (total={}, batch=/{}{}) - Loss: {}".format(
+                        total, index, batch, loss_total / loss_count
+                    )
+                )
         accelerator.save(self, save) if save else None
         logger.info(
             "[Train] ----- Dataset: (total={}, batch={}) - complete".format(
