@@ -120,9 +120,9 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
             self.model = Model(transformer, input_embeddings, output_embeddings)
 
-    def inverse(self, pose):
+    def inverse(self, pose, repeat=None):
 
-        repeat = 16
+        repeat = repeat if repeat else 16
 
         with torch.no_grad():
             position = torch.stack(
