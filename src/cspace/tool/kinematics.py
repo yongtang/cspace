@@ -34,6 +34,7 @@ def main():
     if mode == "check":
         parser.add_argument("--load", dest="load", type=str, required=True)
         parser.add_argument("--joint", dest="joint", type=str, nargs="+", required=True)
+        parser.add_argument("--repeat", dest="repeat", type=int, default=None)
     else:
         parser.add_argument("--save", dest="save", type=str, required=True)
 
@@ -78,7 +79,7 @@ def main():
 
             pose = kinematics.forward(state)
 
-            inverse = kinematics.inverse(pose)
+            inverse = kinematics.inverse(pose, repeat=args.repeat)
             pred = kinematics.forward(inverse)
 
             zero = cspace.torch.classes.JointStateCollection.apply(

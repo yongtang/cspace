@@ -293,8 +293,12 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
                     loss_total += loss.sum().item()
                     loss_count += len(pred)
                 logger.info(
-                    "[Train] ----- Dataset: (total={}, batch={}) - Index: {} - Loss: {}".format(
-                        total, batch, index, loss_total / loss_count
+                    "[Train] ----- Dataset: (total={}, batch={}) - {}/{} - Loss: {}".format(
+                        total,
+                        batch,
+                        (index + 1) * batch,
+                        total,
+                        loss_total / loss_count,
                     )
                 )
         accelerator.save(self, save) if save else None
