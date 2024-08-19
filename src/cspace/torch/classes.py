@@ -3,6 +3,7 @@ import cspace.torch.ops
 import dataclasses
 import functools
 import torch
+import abc
 
 
 class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
@@ -56,8 +57,14 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         base = base if base else spec.base
         link = link if len(link) else spec.link
         entries = tuple(self.transform(spec, item, base) for item in link)
-        position = torch.stack(tuple(entry.xyz for entry in entries), dim=-1)
-        orientation = torch.stack(tuple(entry.qua for entry in entries), dim=-1)
+        position = torch.stack(
+            tuple(entry.xyz.expand(*(self.batch + tuple([3]))) for entry in entries),
+            dim=-1,
+        )
+        orientation = torch.stack(
+            tuple(entry.qua.expand(*(self.batch + tuple([4]))) for entry in entries),
+            dim=-1,
+        )
         return LinkPoseCollection(base, link, position, orientation)
 
     @property
@@ -257,5 +264,21 @@ class Transform(cspace.cspace.classes.Transform):
         return Transform(xyz=xyz, rot=rot)
 
 
-class Kinematics(cspace.cspace.classes.Kinematics):
-    pass
+class InverseKinematics(cspace.cspace.classes.Kinematics):
+
+    def __init__(self, description, *link, base=None):
+        super().__init__(description, *link, base=base)
+
+    @abc.abstractmethod
+    def inverse(self, pose):
+        raise NotImplementedError
+
+
+class PerceptionKinematics(cspace.cspace.classes.Kinematics):
+
+    def __init__(self, description, base=None):
+        super().__init__(description, base=base)
+
+    @abc.abstractmethod
+    def perception(self, observation):
+        raise NotImplementedError

@@ -513,7 +513,7 @@ class Spec:
         return state.forward(self, *link, base=base)
 
 
-class Kinematics:
+class Kinematics(abc.ABC):
     spec: Spec
     base: str
     link: tuple[str]
@@ -541,9 +541,3 @@ class Kinematics:
 
     def forward(self, state):
         return state.forward(self.spec, *self.link, base=self.base)
-
-    def inverse(self, pose):
-        raise NotImplementedError
-
-    def policy(self, state, observation):
-        raise NotImplementedError

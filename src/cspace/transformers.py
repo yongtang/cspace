@@ -51,6 +51,30 @@ class Model(torch.nn.Module):
         return data
 
 
+class JointStateDecode:
+    def decode(self, state, pred):
+        pred = torch.unflatten(pred, -1, (self.bucket, -1))
+        assert pred.shape[-2:] == (self.bucket, len(self.joint))
+
+        index = torch.argmax(pred, dim=-2)
+
+        prod = torch.cumprod(
+            torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand([len(state)]),
+            dim=0,
+        )[-1]
+        zero = prod * self.bucket / 2.0
+
+        scale = (
+            state[-1].scale(self.spec, min=-1.0, max=1.0).to(index.device)
+            + torch.sub(torch.add(torch.multiply(index, prod), prod / 2), zero) * 2.0
+        )  # (-1.0, 1.0)
+
+        state = cspace.torch.classes.JointStateCollection.apply(
+            self.spec, self.joint, scale, min=-1.0, max=1.0
+        )
+        return state
+
+
 class InverseDataset(torch.utils.data.Dataset):
     def __init__(self, joint, link, bucket, length, total, noise=None):
         total = total if noise is None else (noise * total)
@@ -94,7 +118,7 @@ class InverseDataset(torch.utils.data.Dataset):
         return (self.scale[key], self.index[key], self.noise[key])
 
 
-class InverseKinematics(cspace.torch.classes.Kinematics):
+class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateDecode):
     loss_fn = torch.nn.CrossEntropyLoss()
 
     def __init__(
@@ -104,6 +128,7 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
         if model:
             self.bucket = bucket if bucket else 10
             self.length = length if length else 3
+
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
                 (len(self.joint) * 1 + len(self.link) * 6),
@@ -347,36 +372,24 @@ class InverseKinematics(cspace.torch.classes.Kinematics):
 
         return torch.concatenate(value, dim=-2)
 
-    def decode(self, state, pred):
-        pred = torch.unflatten(pred, -1, (self.bucket, -1))
-        assert pred.shape[-2:] == (self.bucket, len(self.joint))
 
-        index = torch.argmax(pred, dim=-2)
-
-        prod = torch.cumprod(
-            torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand([len(state)]),
-            dim=0,
-        )[-1]
-        zero = prod * self.bucket / 2.0
-
-        scale = (
-            state[-1].scale(self.spec, min=-1.0, max=1.0).to(index.device)
-            + torch.sub(torch.add(torch.multiply(index, prod), prod / 2), zero) * 2.0
-        )  # (-1.0, 1.0)
-
-        state = cspace.torch.classes.JointStateCollection.apply(
-            self.spec, self.joint, scale, min=-1.0, max=1.0
-        )
-        return state
-
-
-class PolicyKinematics(cspace.torch.classes.Kinematics):
-    def __init__(self, description, *link, base=None, model=None):
-        super().__init__(description, *link, base=base)
+class PerceptionKinematics(cspace.torch.classes.PerceptionKinematics, JointStateDecode):
+    def __init__(
+        self, description, base=None, model=None, vision=None, bucket=None, length=None
+    ):
+        super().__init__(description, base=base)
         if model:
+            self.bucket = bucket if bucket else 10
+            self.length = length if length else 3
+
+            self.image = transformers.AutoImageProcessor.from_pretrained(vision)
+            self.vision = transformers.AutoModel.from_pretrained(vision)
+            for param in self.vision.parameters():
+                param.requires_grad = False
+
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
-                (len(self.joint) * 1 + len(self.link) * 6),
+                (len(self.joint) * 1 + self.vision.config.hidden_size),
                 transformer.get_input_embeddings().embedding_dim,
                 dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
@@ -387,21 +400,83 @@ class PolicyKinematics(cspace.torch.classes.Kinematics):
                 dtype=transformer.get_output_embeddings().weight.dtype,
                 bias=False,
             )
-
             self.model = Model(transformer, input_embeddings, output_embeddings)
 
-    def policy(self, state, observation):
+    def perception(self, observation):
         with torch.no_grad():
-            data = self.encode(state, observation)
+            batch = observation.shape[:-3]
 
-            pred = self.model(data)
+            state = [
+                cspace.torch.classes.JointStateCollection.apply(
+                    self.spec,
+                    self.joint,
+                    torch.zeros(batch + tuple([len(self.joint)])),
+                    min=-1.0,
+                    max=1.0,
+                )
+            ]
 
-            state = self.decode(pred)
+            for step in range(self.length):
+                data = self.encode(state, observation)
+
+                pred = self.model(data)
+
+                state.append(self.decode(state, pred))
+
+            state = state[-1]
 
             return state
 
     def encode(self, state, observation):
-        raise NotImplementedError
+        def f_entry(self, entry):
+            value = tuple(
+                torch.unsqueeze(entry.position(self.spec, name), -1)
+                for name in entry.name
+            )
+            value = tuple(entry.to(next(iter(value)).device) for entry in value)
+            value = torch.concatenate(value, dim=-1)
 
-    def decode(self, pred):
-        raise NotImplementedError
+            value = torch.reshape(value, entry.batch + (1, -1))
+
+            return value
+
+        value = tuple(f_entry(self, entry) for entry in state)
+
+        value = tuple(entry.to(next(iter(value)).device) for entry in value)
+
+        value = torch.concatenate(value, dim=-2)
+
+        with torch.no_grad():
+            pixel = self.image(
+                observation, return_tensors="pt", do_rescale=False
+            ).pixel_values
+            pixel = self.vision(pixel_values=pixel).last_hidden_state
+
+        total = value.shape[-1] + pixel.shape[-1]
+
+        pixel = torch.concatenate(
+            (
+                torch.zeros(
+                    (pixel.shape[:-1] + tuple([total - pixel.shape[-1]])),
+                    dtype=pixel.dtype,
+                    device=pixel.device,
+                ),
+                pixel,
+            ),
+            dim=-1,
+        )
+        value = torch.concatenate(
+            (
+                value,
+                torch.zeros(
+                    (value.shape[:-1] + tuple([total - value.shape[-1]])),
+                    dtype=value.dtype,
+                    device=value.device,
+                ),
+            ),
+            dim=-1,
+        )
+
+        value = torch.concatenate((pixel, value), dim=-2)
+
+        return value

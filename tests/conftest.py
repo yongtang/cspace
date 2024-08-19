@@ -203,6 +203,14 @@ def urdf_file_tutorial(tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
+def image_file_tutorial(tmp_path_factory):
+    url = "https://raw.githubusercontent.com/ros/urdf_tutorial/ros1/images/visual.png"
+    file = tmp_path_factory.mktemp("data") / "07-physics.png"
+    file.write_bytes(requests.get(url).content)
+    return file
+
+
+@pytest.fixture(scope="session")
 def joint_state_tutorial(urdf_file_tutorial):
     name = [
         "right_front_wheel_joint",

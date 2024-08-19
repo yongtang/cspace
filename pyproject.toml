@@ -33,6 +33,8 @@ test = [
   "torch",
   "accelerate",
   "transformers",
+  "torchvision",
+  "pillow",
   "scipy",
   "pytest",
   "transforms3d",

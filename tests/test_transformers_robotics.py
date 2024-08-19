@@ -5,6 +5,9 @@ import cspace.transformers
 import accelerate
 import pathlib
 import torch
+import torchvision
+import PIL.Image
+import io
 
 
 def test_kinematics_forward(
@@ -162,7 +165,7 @@ def test_kinematics_inverse(
             + "\n"
         ).format(
             list(
-                (name, kinematics.spec.joint(name).motion.limit) for name in zero.name
+                (name, kinematics.spec.joint(name).motion.limit) for name in state.name
             ),
             list(
                 (name, zero.position(kinematics.spec, name).data.cpu().item())
@@ -183,6 +186,125 @@ def test_kinematics_inverse(
             list(
                 (name, inverse.position(kinematics.spec, name).data.cpu().item())
                 for name in inverse.name
+            ),
+            list(
+                (name, pred.position(name).data.cpu().numpy().tolist())
+                for name in pred.name
+            ),
+            list(
+                (name, pred.orientation(name).data.cpu().numpy().tolist())
+                for name in pred.name
+            ),
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "model,vision,bucket,length,noise,total,batch,repeat",
+    [
+        pytest.param(
+            "gpt2",
+            "google/vit-base-patch16-224",
+            2,
+            10,
+            None,
+            8 * 1024 * 1024,
+            32 * 1024,
+            5,
+            marks=pytest.mark.full,
+        ),
+        pytest.param("gpt2", "google/vit-base-patch16-224", 2, 10, None, 8, 2, 5),
+        pytest.param("gpt2", "google/vit-base-patch16-224", 2, 10, 2, 8, 2, 5),
+    ],
+)
+def test_kinematics_perception(
+    device,
+    urdf_file_tutorial,
+    image_file_tutorial,
+    joint_state_tutorial,
+    link_pose_tutorial,
+    model,
+    vision,
+    bucket,
+    length,
+    noise,
+    total,
+    batch,
+    repeat,
+    request,
+    tmp_path_factory,
+):
+    with open(image_file_tutorial, "rb") as f:
+        image = torchvision.transforms.functional.to_tensor(
+            PIL.Image.open(io.BytesIO(f.read())).convert("RGB")
+        )
+
+    saved = pathlib.Path.joinpath(
+        tmp_path_factory.mktemp("model"),
+        f"{str(hash(request.node.name + request.node.callspec.id))}.pth",
+    )
+
+    accelerator = accelerate.Accelerator()
+    logger = accelerate.logging.get_logger(__name__, log_level="INFO")
+
+    kinematics = cspace.transformers.PerceptionKinematics(
+        pathlib.Path(urdf_file_tutorial).read_text(),
+        model=model,
+        vision=vision,
+        bucket=bucket,
+        length=length,
+    )
+
+    joint_state_tutorial = dict(
+        zip(joint_state_tutorial.name, joint_state_tutorial.position)
+    )
+    state = cspace.torch.classes.JointStateCollection(
+        kinematics.joint, tuple(joint_state_tutorial[name] for name in kinematics.joint)
+    )
+
+    pose = kinematics.forward(state)
+
+    observation = torch.unsqueeze(image, 0)
+
+    perception = kinematics.perception(observation)
+    pred = kinematics.forward(perception)
+
+    logger.info(
+        (
+            "\n"
+            + "[Policy Kinematics]\n"
+            + "\n"
+            + "Limit:{}\n"
+            + "\n"
+            + "--------------------\n"
+            + "\n"
+            + "True: {}\n"
+            + "\n"
+            + "Pose: [position]    {}\n"
+            + "      [orientation] {}\n"
+            + "\n"
+            + "--------------------\n"
+            + "\n"
+            + "Pred: {}\n"
+            + "\n"
+            + "Pose: [position]    {}\n"
+            + "      [orientation] {}\n"
+            + "\n"
+        ).format(
+            list(
+                (name, kinematics.spec.joint(name).motion.limit) for name in state.name
+            ),
+            list(
+                (name, state.position(kinematics.spec, name).data.cpu().item())
+                for name in state.name
+            ),
+            list((name, pose.position(name).data.cpu().tolist()) for name in pose.name),
+            list(
+                (name, pose.orientation(name).data.cpu().tolist()) for name in pose.name
+            ),
+            list(
+                (name, perception.position(kinematics.spec, name).data.cpu().item())
+                for name in perception.name
             ),
             list(
                 (name, pred.position(name).data.cpu().numpy().tolist())
