@@ -509,8 +509,8 @@ class PerceptionKinematics(cspace.torch.classes.PerceptionKinematics, JointState
 
         if image:
             dataset = cspace.transformers.PerceptionDataset(
-                image,
-                label,
+                image=image,
+                label=label,
                 function=self.image,
                 joint=self.joint,
             )
