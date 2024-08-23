@@ -28,6 +28,7 @@ full =[
   "torch",
   "accelerate",
   "transformers",
+  "pillow",
 ]
 test = [
   "torch",

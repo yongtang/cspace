@@ -1,7 +1,11 @@
 import cspace.cspace.classes
 import cspace.torch.classes
 import transformers
+import PIL.Image
+import pathlib
 import torch
+import json
+import io
 
 
 class Model(torch.nn.Module):
@@ -373,7 +377,45 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateDecode
         return torch.concatenate(value, dim=-2)
 
 
+class PerceptionDataset(torch.utils.data.Dataset):
+    def __init__(self, /, image, label, function, joint):
+        def f(entry):
+            entries = list(
+                pathlib.Path(image).glob(
+                    str(entry.relative_to(label)).removesuffix(".json") + ".*"
+                )
+            )
+            entries = list(
+                (file, entry)
+                for file in entries
+                if file.suffix in (".png", ".jpg", ".jpeg", ".bmp")
+            )
+            return next(iter(entries), None)
+
+        self.entries = list(filter(None, map(f, pathlib.Path(label).rglob("*.json"))))
+        self.function = function
+        self.joint = joint
+
+    def __len__(self):
+        return len(self.entries)
+
+    def __getitem__(self, key):
+        image, label = self.entries[key]
+        image = self.function(image)
+        image = torch.squeeze(image, dim=0)
+
+        with open(label) as f:
+            label = json.load(f)
+        label = torch.tensor(
+            tuple(label[name] for name in self.joint), dtype=torch.float64
+        )
+
+        return image, label
+
+
 class PerceptionKinematics(cspace.torch.classes.PerceptionKinematics, JointStateDecode):
+    loss_fn = torch.nn.CrossEntropyLoss()
+
     def __init__(
         self, description, base=None, model=None, vision=None, bucket=None, length=None
     ):
@@ -382,10 +424,10 @@ class PerceptionKinematics(cspace.torch.classes.PerceptionKinematics, JointState
             self.bucket = bucket if bucket else 10
             self.length = length if length else 3
 
-            self.image = transformers.AutoImageProcessor.from_pretrained(vision)
             self.vision = transformers.AutoModel.from_pretrained(vision)
             for param in self.vision.parameters():
                 param.requires_grad = False
+            self.processor = transformers.AutoImageProcessor.from_pretrained(vision)
 
             transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
             input_embeddings = torch.nn.Linear(
@@ -427,6 +469,153 @@ class PerceptionKinematics(cspace.torch.classes.PerceptionKinematics, JointState
 
             return state
 
+    def image(self, file):
+        return self.processor(
+            PIL.Image.open(
+                io.BytesIO(file) if isinstance(file, bytes) else file
+            ).convert("RGB"),
+            return_tensors="pt",
+        ).pixel_values
+
+    def train(
+        self,
+        *,
+        logger,
+        accelerator,
+        image,
+        label,
+        save=None,
+        batch=None,
+        lr=None,
+    ):
+        batch = batch if batch is not None else 128
+        lr = lr if lr is not None else 1e-5
+
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr)
+        scheduler = torch.optim.lr_scheduler.ChainedScheduler(
+            [
+                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9),
+                torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                    optimizer, T_0=5, T_mult=2
+                ),
+            ]
+        )
+
+        logger.info(
+            "[Train] ----- Dataset: (image={}, label={}, batch={}) - creation".format(
+                image, label, batch
+            )
+        )
+
+        if image:
+            dataset = cspace.transformers.PerceptionDataset(
+                image,
+                label,
+                function=self.image,
+                joint=self.joint,
+            )
+            dataloader = torch.utils.data.DataLoader(
+                dataset,
+                batch_size=batch,
+                shuffle=True,
+            )
+
+            dataloader, model, optimizer, scheduler = accelerator.prepare(
+                dataloader, self.model, optimizer, scheduler
+            )
+            model.train()
+
+            logger.info(
+                "[Train] ----- Dataset: (total={}, batch={})".format(
+                    len(dataset), batch
+                )
+            )
+
+            prod = (
+                torch.cumprod(
+                    torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand(
+                        [self.length, 1]
+                    ),
+                    dim=-2,
+                )
+                * self.bucket
+            )
+
+            zero = prod.expand(self.length, self.bucket) * torch.linspace(
+                start=-1.0 + 1.0 / self.bucket,
+                end=1.0 - 1.0 / self.bucket,
+                steps=self.bucket,
+                dtype=torch.float64,
+            ).expand(self.length, self.bucket)
+
+            prod = prod.expand(self.length, self.bucket - 1) * torch.linspace(
+                start=-1.0 + 2.0 / self.bucket,
+                end=1.0 - 2.0 / self.bucket,
+                steps=self.bucket - 1,
+                dtype=torch.float64,
+            ).expand(self.length, self.bucket - 1)
+
+            loss_total, loss_count = 0, 0
+            for index, (observation, value) in enumerate(dataloader):
+                value = cspace.torch.classes.JointStateCollection(self.joint, value)
+                value = value.scale(spec=self.spec, min=-1.0, max=1.0)
+
+                true = []
+                for step in range(self.length):
+                    entry = torch.bucketize(value, prod[step])
+                    value = value - zero[step][entry]
+                    true.append(entry)
+
+                scale = [torch.zeros_like(value)]
+                for step in range(self.length - 1):
+                    entry = scale[-1] + zero[step][true[step]]
+                    scale.append(entry)
+
+                true = torch.stack(true, dim=-2)
+                scale = torch.stack(scale, dim=-2)
+
+                state = tuple(
+                    cspace.torch.classes.JointStateCollection.apply(
+                        self.spec,
+                        self.joint,
+                        torch.select(scale, dim=-2, index=step),
+                        min=-1.0,
+                        max=1.0,
+                    )
+                    for step in range(self.length)
+                )
+
+                for step in range(self.length):
+                    data = self.encode(state[0 : step + 1], observation)
+                    pred = model(data)
+                    loss = self.loss_fn(
+                        torch.unflatten(pred, -1, (self.bucket, -1)),
+                        torch.select(true, dim=-2, index=step),
+                    )
+                    accelerator.backward(loss)
+                    optimizer.step()
+                    scheduler.step()
+                    optimizer.zero_grad()
+                    loss = accelerator.gather_for_metrics(loss)
+                    pred = accelerator.gather_for_metrics(pred)
+                    loss_total += loss.sum().item()
+                    loss_count += len(pred)
+                logger.info(
+                    "[Train] ----- Dataset: (total={}, batch={}) - {}/{} - Loss: {}".format(
+                        len(dataset),
+                        batch,
+                        (index + 1) * batch,
+                        len(dataset),
+                        loss_total / loss_count,
+                    )
+                )
+        accelerator.save(self, save) if save else None
+        logger.info(
+            "[Train] ----- Dataset: (image={}, label={}, batch={}) - complete".format(
+                image, label, batch
+            )
+        )
+
     def encode(self, state, observation):
         def f_entry(self, entry):
             value = tuple(
@@ -447,10 +636,7 @@ class PerceptionKinematics(cspace.torch.classes.PerceptionKinematics, JointState
         value = torch.concatenate(value, dim=-2)
 
         with torch.no_grad():
-            pixel = self.image(
-                observation, return_tensors="pt", do_rescale=False
-            ).pixel_values
-            pixel = self.vision(pixel_values=pixel).last_hidden_state
+            pixel = self.vision(pixel_values=observation).last_hidden_state
 
         total = value.shape[-1] + pixel.shape[-1]
 

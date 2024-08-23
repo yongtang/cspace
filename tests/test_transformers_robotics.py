@@ -4,10 +4,9 @@ import cspace.transformers
 
 import accelerate
 import pathlib
+import shutil
+import json
 import torch
-import torchvision
-import PIL.Image
-import io
 
 
 def test_kinematics_forward(
@@ -200,21 +199,9 @@ def test_kinematics_inverse(
 
 
 @pytest.mark.parametrize(
-    "model,vision,bucket,length,noise,total,batch,repeat",
+    "model,vision,bucket,length,batch,repeat",
     [
-        pytest.param(
-            "gpt2",
-            "google/vit-base-patch16-224",
-            2,
-            10,
-            None,
-            8 * 1024 * 1024,
-            32 * 1024,
-            5,
-            marks=pytest.mark.full,
-        ),
-        pytest.param("gpt2", "google/vit-base-patch16-224", 2, 10, None, 8, 2, 5),
-        pytest.param("gpt2", "google/vit-base-patch16-224", 2, 10, 2, 8, 2, 5),
+        pytest.param("gpt2", "google/vit-base-patch16-224", 2, 10, 2, 5),
     ],
 )
 def test_kinematics_perception(
@@ -227,18 +214,11 @@ def test_kinematics_perception(
     vision,
     bucket,
     length,
-    noise,
-    total,
     batch,
     repeat,
     request,
     tmp_path_factory,
 ):
-    with open(image_file_tutorial, "rb") as f:
-        image = torchvision.transforms.functional.to_tensor(
-            PIL.Image.open(io.BytesIO(f.read())).convert("RGB")
-        )
-
     saved = pathlib.Path.joinpath(
         tmp_path_factory.mktemp("model"),
         f"{str(hash(request.node.name + request.node.callspec.id))}.pth",
@@ -255,6 +235,36 @@ def test_kinematics_perception(
         length=length,
     )
 
+    image = tmp_path_factory.mktemp(
+        "image-" + str(hash(request.node.name + request.node.callspec.id))
+    )
+    shutil.copy(image_file_tutorial, pathlib.Path.joinpath(image, "1.png"))
+    shutil.copy(image_file_tutorial, pathlib.Path.joinpath(image, "2.png"))
+
+    label = tmp_path_factory.mktemp(
+        "label-" + str(hash(request.node.name + request.node.callspec.id))
+    )
+    with open(pathlib.Path.joinpath(label, "1.json"), "w") as f:
+        json.dump(
+            dict(zip(joint_state_tutorial.name, joint_state_tutorial.position)), f
+        )
+    with open(pathlib.Path.joinpath(label, "2.json"), "w") as f:
+        json.dump(
+            dict(zip(joint_state_tutorial.name, joint_state_tutorial.position)), f
+        )
+
+    for _ in range(repeat):
+        kinematics.train(
+            logger=logger,
+            accelerator=accelerator,
+            image=image,
+            label=label,
+            save=saved,
+            batch=batch,
+        )
+
+    kinematics = torch.load(saved)
+
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
     )
@@ -264,7 +274,8 @@ def test_kinematics_perception(
 
     pose = kinematics.forward(state)
 
-    observation = torch.unsqueeze(image, 0)
+    with open(image_file_tutorial, "rb") as f:
+        observation = kinematics.image(f.read())
 
     perception = kinematics.perception(observation)
     pred = kinematics.forward(perception)
