@@ -590,7 +590,7 @@ class PerceptionKinematics(cspace.torch.classes.PerceptionKinematics, JointState
                     pred = model(data)
                     loss = self.loss_fn(
                         torch.unflatten(pred, -1, (self.bucket, -1)),
-                        torch.select(true, dim=-2, index=step),
+                        torch.select(true.to(pred.device), dim=-2, index=step),
                     )
                     accelerator.backward(loss)
                     optimizer.step()
