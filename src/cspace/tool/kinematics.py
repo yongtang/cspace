@@ -100,7 +100,7 @@ def main():
 
     if mode == "check":
         with accelerator.main_process_first():
-            kinematics = torch.load(args.load, map_location=torch.device("cpu"))
+            kinematics = torch.load(args.load)
 
             if func == "inverse":
                 joint, position = zip(
@@ -287,7 +287,7 @@ def main():
     else:
         if func == "inverse":
             kinematics = (
-                torch.load(args.load, map_location=torch.device("cpu"))
+                torch.load(args.load)
                 if args.load
                 else cspace.transformers.InverseKinematics(
                     pathlib.Path(args.urdf).read_text(),
@@ -307,7 +307,7 @@ def main():
             )
         else:
             kinematics = (
-                torch.load(args.load, map_location=torch.device("cpu"))
+                torch.load(args.load)
                 if args.load
                 else cspace.transformers.PerceptionKinematics(
                     pathlib.Path(args.urdf).read_text(),
