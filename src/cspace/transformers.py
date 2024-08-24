@@ -558,11 +558,11 @@ class PerceptionKinematics(cspace.torch.classes.PerceptionKinematics, JointState
             loss_total, loss_count = 0, 0
             for index, (observation, value) in enumerate(dataloader):
                 value = cspace.torch.classes.JointStateCollection(self.joint, value)
-                value = value.scale(spec=self.spec, min=-1.0, max=1.0)
+                value = value.scale(spec=self.spec, min=-1.0, max=1.0).cpu()
 
                 true = []
                 for step in range(self.length):
-                    entry = torch.bucketize(value.cpu(), prod[step])
+                    entry = torch.bucketize(value, prod[step])
                     value = value - zero[step][entry]
                     true.append(entry)
 
