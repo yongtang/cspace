@@ -636,7 +636,7 @@ class PerceptionKinematics(cspace.torch.classes.PerceptionKinematics, JointState
         value = torch.concatenate(value, dim=-2)
 
         with torch.no_grad():
-            print("XXXX - ", observatoin.device)
+            print("XXXX - ", observation.device)
             print("YYYY - ", self.vision.device)
             pixel = self.vision(pixel_values=observation).last_hidden_state
 
