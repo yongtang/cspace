@@ -666,6 +666,8 @@ class PerceptionKinematics(cspace.torch.classes.PerceptionKinematics, JointState
             dim=-1,
         )
 
+        value = value.to(pixel.device)
+
         value = torch.concatenate((pixel, value), dim=-2)
 
         return value
