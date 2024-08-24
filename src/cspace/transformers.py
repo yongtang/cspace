@@ -562,7 +562,7 @@ class PerceptionKinematics(cspace.torch.classes.PerceptionKinematics, JointState
 
                 true = []
                 for step in range(self.length):
-                    entry = torch.bucketize(value, prod[step].to(value.device))
+                    entry = torch.bucketize(value.cpu(), prod[step])
                     value = value - zero[step][entry]
                     true.append(entry)
 
