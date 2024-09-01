@@ -2,6 +2,7 @@ import cspace.cspace.classes
 import cspace.torch.classes
 import transformers
 import PIL.Image
+import functools
 import pathlib
 import torch
 import json
@@ -55,7 +56,7 @@ class Model(torch.nn.Module):
         return data
 
 
-class JointStateDecode:
+class JointStateEncoding:
     def decode(self, state, pred):
         pred = torch.unflatten(pred, -1, (self.bucket, -1))
         assert pred.shape[-2:] == (self.bucket, len(self.joint))
@@ -77,6 +78,63 @@ class JointStateDecode:
             self.spec, self.joint, scale, min=-1.0, max=1.0
         )
         return state
+
+    def bucketize(self, state):
+        value = state.scale(spec=self.spec, min=-1.0, max=1.0)
+
+        true = []
+        for step in range(self.length):
+            entry = torch.bucketize(value, self.chunk["prod"][step])
+            value = value - self.chunk["zero"][step][entry]
+            true.append(entry)
+
+        scale = [torch.zeros_like(value)]
+        for step in range(self.length - 1):
+            entry = scale[-1] + self.chunk["zero"][step][true[step]]
+            scale.append(entry)
+
+        true = torch.stack(true, dim=-2)
+        scale = torch.stack(scale, dim=-2)
+
+        state = tuple(
+            cspace.torch.classes.JointStateCollection.apply(
+                self.spec,
+                self.joint,
+                torch.select(scale, dim=-2, index=step),
+                min=-1.0,
+                max=1.0,
+            )
+            for step in range(self.length)
+        )
+        return state, true
+
+    @functools.cached_property
+    def chunk(self):
+        prod = (
+            torch.cumprod(
+                torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand(
+                    [self.length, 1]
+                ),
+                dim=-2,
+            )
+            * self.bucket
+        )
+
+        zero = prod.expand(self.length, self.bucket) * torch.linspace(
+            start=-1.0 + 1.0 / self.bucket,
+            end=1.0 - 1.0 / self.bucket,
+            steps=self.bucket,
+            dtype=torch.float64,
+        ).expand(self.length, self.bucket)
+
+        prod = prod.expand(self.length, self.bucket - 1) * torch.linspace(
+            start=-1.0 + 2.0 / self.bucket,
+            end=1.0 - 2.0 / self.bucket,
+            steps=self.bucket - 1,
+            dtype=torch.float64,
+        ).expand(self.length, self.bucket - 1)
+
+        return {"prod": prod, "zero": zero}
 
 
 class InverseDataset(torch.utils.data.Dataset):
@@ -122,7 +180,7 @@ class InverseDataset(torch.utils.data.Dataset):
         return (self.scale[key], self.index[key], self.noise[key])
 
 
-class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateDecode):
+class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncoding):
     loss_fn = torch.nn.CrossEntropyLoss()
 
     def __init__(
@@ -413,7 +471,9 @@ class PerceptionDataset(torch.utils.data.Dataset):
         return image, label
 
 
-class PerceptionKinematics(cspace.torch.classes.PerceptionKinematics, JointStateDecode):
+class PerceptionKinematics(
+    cspace.torch.classes.PerceptionKinematics, JointStateEncoding
+):
     loss_fn = torch.nn.CrossEntropyLoss()
 
     def __init__(
@@ -531,58 +591,10 @@ class PerceptionKinematics(cspace.torch.classes.PerceptionKinematics, JointState
                 )
             )
 
-            prod = (
-                torch.cumprod(
-                    torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand(
-                        [self.length, 1]
-                    ),
-                    dim=-2,
-                )
-                * self.bucket
-            )
-
-            zero = prod.expand(self.length, self.bucket) * torch.linspace(
-                start=-1.0 + 1.0 / self.bucket,
-                end=1.0 - 1.0 / self.bucket,
-                steps=self.bucket,
-                dtype=torch.float64,
-            ).expand(self.length, self.bucket)
-
-            prod = prod.expand(self.length, self.bucket - 1) * torch.linspace(
-                start=-1.0 + 2.0 / self.bucket,
-                end=1.0 - 2.0 / self.bucket,
-                steps=self.bucket - 1,
-                dtype=torch.float64,
-            ).expand(self.length, self.bucket - 1)
-
             loss_total, loss_count = 0, 0
             for index, (observation, value) in enumerate(dataloader):
-                value = cspace.torch.classes.JointStateCollection(self.joint, value)
-                value = value.scale(spec=self.spec, min=-1.0, max=1.0)
-
-                true = []
-                for step in range(self.length):
-                    entry = torch.bucketize(value, prod[step])
-                    value = value - zero[step][entry]
-                    true.append(entry)
-
-                scale = [torch.zeros_like(value)]
-                for step in range(self.length - 1):
-                    entry = scale[-1] + zero[step][true[step]]
-                    scale.append(entry)
-
-                true = torch.stack(true, dim=-2)
-                scale = torch.stack(scale, dim=-2)
-
-                state = tuple(
-                    cspace.torch.classes.JointStateCollection.apply(
-                        self.spec,
-                        self.joint,
-                        torch.select(scale, dim=-2, index=step),
-                        min=-1.0,
-                        max=1.0,
-                    )
-                    for step in range(self.length)
+                state, true = self.bucketize(
+                    cspace.torch.classes.JointStateCollection(self.joint, value)
                 )
 
                 for step in range(self.length):
