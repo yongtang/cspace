@@ -280,9 +280,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             selection = torch.min(loss, dim=-1)
             selection = torch.reshape(selection.indices, [-1])
 
-            position = torch.stack(
-                tuple(state.position(self.spec, name) for name in state.name), dim=-1
-            )
+            position = state.data
             position = torch.reshape(position, (-1, repeat, len(self.joint)))
             position = torch.index_select(position, dim=-2, index=selection)
             position = torch.reshape(position, pose.batch + tuple([len(self.joint)]))
@@ -411,11 +409,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             )
 
             mark = self.forward(entry)
-
-            value = tuple(
-                torch.unsqueeze(entry.position(self.spec, name), -1)
-                for name in entry.name
-            ) + tuple(
+            value = [entry.data] + list(
                 f_task(mark, task, noise, index, name)
                 for index, name in enumerate(task.name)
             )

@@ -41,6 +41,10 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         self._position_ = torch.as_tensor(position, dtype=torch.float64)
         assert len(self.name) == self._position_.shape[-1]
 
+    @property
+    def data(self):
+        return self._position_
+
     def position(self, spec, name):
         if not spec.joint(name).motion.call:  # fixed
             return torch.empty(
