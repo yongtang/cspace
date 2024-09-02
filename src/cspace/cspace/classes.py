@@ -21,6 +21,11 @@ class LinkPoseCollection(abc.ABC):
     def name(self):
         return self._name_
 
+    @property
+    @abc.abstractmethod
+    def data(self):
+        raise NotImplementedError
+
     @abc.abstractmethod
     def position(self, name):
         raise NotImplementedError

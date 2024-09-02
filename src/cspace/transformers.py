@@ -212,12 +212,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
         repeat = repeat if repeat else 16
 
         with torch.no_grad():
-            position = torch.stack(
-                tuple(pose.position(name) for name in pose.name), dim=-1
-            )
-            orientation = torch.stack(
-                tuple(pose.orientation(name) for name in pose.name), dim=-1
-            )
+            position, orientation = pose.data
 
             position = position.unsqueeze(-3).expand(
                 *(pose.batch + (repeat, 3, len(pose.name)))
@@ -256,12 +251,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
 
             task = self.forward(state)
 
-            position = torch.stack(
-                tuple(task.position(name) for name in pose.name), dim=-1
-            )
-            orientation = torch.stack(
-                tuple(task.orientation(name) for name in pose.name), dim=-1
-            )
+            position, orientation = task.data
 
             measure = (
                 transform.inverse()

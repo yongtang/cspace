@@ -14,6 +14,10 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
         self._orientation_ = torch.as_tensor(orientation, dtype=torch.float64)
         assert len(self.name) == self._orientation_.shape[-1]
 
+    @property
+    def data(self):
+        return self._position_, self._orientation_
+
     def position(self, name):
         return torch.select(self._position_, dim=-1, index=self.index(name))
 
