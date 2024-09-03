@@ -214,11 +214,11 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
         with torch.no_grad():
             position, orientation = pose.data
 
-            position = position.unsqueeze(-3).expand(
-                *(pose.batch + (repeat, 3, len(pose.name)))
+            position = position.unsqueeze(0).expand(
+                *(tuple([repeat]) + pose.batch + (3, len(pose.name)))
             )
-            orientation = orientation.unsqueeze(-3).expand(
-                *(pose.batch + (repeat, 4, len(pose.name)))
+            orientation = orientation.unsqueeze(0).expand(
+                *(tuple([repeat]) + pose.batch + (4, len(pose.name)))
             )
 
             transform = cspace.torch.classes.Transform(
@@ -267,12 +267,12 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 torch.sum(torch.square(torch.flatten(measure, -2, -1)), dim=-1)
             )
 
-            selection = torch.min(loss, dim=-1)
+            selection = torch.min(loss, dim=0)
             selection = torch.reshape(selection.indices, [-1])
 
             position = state.data
-            position = torch.reshape(position, (-1, repeat, len(self.joint)))
-            position = torch.index_select(position, dim=-2, index=selection)
+            position = torch.reshape(position, (repeat, -1, len(self.joint)))
+            position = torch.index_select(position, dim=0, index=selection)
             position = torch.reshape(position, pose.batch + tuple([len(self.joint)]))
 
             state = cspace.torch.classes.JointStateCollection(self.joint, position)
