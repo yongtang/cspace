@@ -131,6 +131,9 @@ def test_kinematics_inverse(
     )
     mark = kinematics.forward(zero)
 
+    start = zero
+    node = mark
+
     inverse = kinematics.inverse(pose, zero)
     pred = kinematics.forward(inverse)
 
@@ -144,6 +147,13 @@ def test_kinematics_inverse(
             + "--------------------\n"
             + "\n"
             + "Zero: {}\n"
+            + "\n"
+            + "Pose: [position]    {}\n"
+            + "      [orientation] {}\n"
+            + "\n"
+            + "--------------------\n"
+            + "\n"
+            + "Node: {}\n"
             + "\n"
             + "Pose: [position]    {}\n"
             + "      [orientation] {}\n"
@@ -173,6 +183,14 @@ def test_kinematics_inverse(
             list((name, mark.position(name).data.cpu().tolist()) for name in mark.name),
             list(
                 (name, mark.orientation(name).data.cpu().tolist()) for name in mark.name
+            ),
+            list(
+                (name, start.position(kinematics.spec, name).data.cpu().item())
+                for name in start.name
+            ),
+            list((name, node.position(name).data.cpu().tolist()) for name in node.name),
+            list(
+                (name, node.orientation(name).data.cpu().tolist()) for name in node.name
             ),
             list(
                 (name, state.position(kinematics.spec, name).data.cpu().item())

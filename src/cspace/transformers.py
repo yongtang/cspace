@@ -255,17 +255,25 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             return cspace.torch.classes.JointStateCollection(final.name, position)
 
         def f_encode(step, pose, processed, entries, repeat, bucket):
-            total = repeat
-            composed = [f_state(entries[0], total)]
-            for i in range(step):
-                composed.append(processed[i])
-            return composed, f_pose(pose, total)
+            composed = []
+            for i in range(step + 1):
+                entry = ([] if i == 0 else [processed[i - 1]]) + (
+                    [f_state(entries[i], (repeat * (step + 1 - i)))]
+                )
+                composed.append(
+                    cspace.torch.classes.JointStateCollection.concatenate(entry)
+                )
+            return composed, f_pose(pose, repeat * (step + 1))
 
         def f_decode(step, pred, processed, entries, repeat, bucket):
-            total = repeat
-            composed = [f_state(entries[0], total)]
-            for i in range(step):
-                composed.append(processed[i])
+            composed = []
+            for i in range(step + 1):
+                entry = ([] if i == 0 else [processed[i - 1]]) + (
+                    [f_state(entries[i], (repeat * (step + 1 - i)))]
+                )
+                composed.append(
+                    cspace.torch.classes.JointStateCollection.concatenate(entry)
+                )
             return composed, pred
 
         repeat = repeat if repeat else 16

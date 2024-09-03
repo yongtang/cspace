@@ -45,6 +45,9 @@ def main():
             parser.add_argument(
                 "--joint", dest="joint", type=str, nargs="+", required=True
             )
+            parser.add_argument(
+                "--start", dest="start", type=str, nargs="+", default=[]
+            )
             parser.add_argument("--repeat", dest="repeat", type=int, default=None)
             parser.add_argument("--device", dest="device", type=str, default="cpu")
         else:
@@ -129,7 +132,22 @@ def main():
                 )
                 mark = kinematics.forward(zero)
 
-                inverse = kinematics.inverse(pose, zero, repeat=args.repeat)
+                if args.start:
+                    joint, position = zip(
+                        *tuple(e.split(":", maxsplit=1) for e in args.start)
+                    )
+                    joint, position = tuple(joint), tuple(float(e) for e in position)
+
+                    start = cspace.torch.classes.JointStateCollection(joint, position)
+                    assert joint == kinematics.joint, "{} vs. {}".format(
+                        joint, kinematics.joint
+                    )
+                    node = kinematics.forward(start)
+                else:
+                    start = zero
+                    node = mark
+
+                inverse = kinematics.inverse(pose, start, repeat=args.repeat)
                 pred = kinematics.forward(inverse)
 
                 logger.info(
@@ -142,6 +160,13 @@ def main():
                         + "--------------------\n"
                         + "\n"
                         + "Zero: {}\n"
+                        + "\n"
+                        + "Pose: [position]    {}\n"
+                        + "      [orientation] {}\n"
+                        + "\n"
+                        + "--------------------\n"
+                        + "\n"
+                        + "Node: {}\n"
                         + "\n"
                         + "Pose: [position]    {}\n"
                         + "      [orientation] {}\n"
@@ -179,6 +204,21 @@ def main():
                         list(
                             (name, mark.orientation(name).data.cpu().tolist())
                             for name in mark.name
+                        ),
+                        list(
+                            (
+                                name,
+                                start.position(kinematics.spec, name).data.cpu().item(),
+                            )
+                            for name in start.name
+                        ),
+                        list(
+                            (name, node.position(name).data.cpu().tolist())
+                            for name in node.name
+                        ),
+                        list(
+                            (name, node.orientation(name).data.cpu().tolist())
+                            for name in node.name
                         ),
                         list(
                             (
