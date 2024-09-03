@@ -131,7 +131,7 @@ def test_kinematics_inverse(
     )
     mark = kinematics.forward(zero)
 
-    inverse = kinematics.inverse(pose)
+    inverse = kinematics.inverse(pose, zero)
     pred = kinematics.forward(inverse)
 
     logger.info(

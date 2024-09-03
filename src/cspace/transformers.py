@@ -207,11 +207,9 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
 
             self.model = Model(transformer, input_embeddings, output_embeddings)
 
-    def inverse(self, pose, repeat=None):
+    def inverse(self, pose, state, repeat=None):
 
-        repeat = repeat if repeat else 16
-
-        with torch.no_grad():
+        def f_pose(pose, repeat):
             position, orientation = pose.data
 
             position = position.unsqueeze(0).expand(
@@ -221,37 +219,21 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 *(tuple([repeat]) + pose.batch + (4, len(pose.name)))
             )
 
-            transform = cspace.torch.classes.Transform(
-                xyz=torch.transpose(position, -1, -2),
-                rot=cspace.torch.ops.qua_to_rot(torch.transpose(orientation, -1, -2)),
-            )
-
-            task = cspace.torch.classes.LinkPoseCollection(
+            return cspace.torch.classes.LinkPoseCollection(
                 pose.base, pose.name, position, orientation
             )
 
-            state = [
-                cspace.torch.classes.JointStateCollection.apply(
-                    self.spec,
-                    self.joint,
-                    torch.zeros(task.batch + tuple([len(self.joint)])),
-                    min=-1.0,
-                    max=1.0,
-                )
-            ]
+        def f_state(state, repeat):
+            position = state.data
+            position = position.unsqueeze(0).expand(
+                *(tuple([repeat]) + state.batch + tuple([len(state.name)]))
+            )
+            return cspace.torch.classes.JointStateCollection(state.name, position)
 
-            for step in range(self.length):
-                data = self.encode(state, task)
+        def f_selection(state, transform):
+            pose = self.forward(state)
 
-                pred = self.model(data)
-
-                state.append(self.decode(state, pred))
-
-            state = state[-1]
-
-            task = self.forward(state)
-
-            position, orientation = task.data
+            position, orientation = pose.data
 
             measure = (
                 transform.inverse()
@@ -273,11 +255,34 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             position = state.data
             position = torch.reshape(position, (repeat, -1, len(self.joint)))
             position = torch.index_select(position, dim=0, index=selection)
-            position = torch.reshape(position, pose.batch + tuple([len(self.joint)]))
+            position = torch.reshape(
+                position, state.batch[1:] + tuple([len(self.joint)])
+            )
 
-            state = cspace.torch.classes.JointStateCollection(self.joint, position)
+            return cspace.torch.classes.JointStateCollection(state.name, position)
 
-            return state
+        repeat = repeat if repeat else 16
+
+        with torch.no_grad():
+            position, orientation = pose.data
+            transform = cspace.torch.classes.Transform(
+                xyz=torch.transpose(position, -1, -2),
+                rot=cspace.torch.ops.qua_to_rot(torch.transpose(orientation, -1, -2)),
+            )
+
+            pose = f_pose(pose, repeat)
+            state = [f_state(state, repeat)]
+
+            for step in range(self.length):
+                data = self.encode(state, pose)
+
+                pred = self.model(data)
+
+                state.append(self.decode(state, pred))
+
+            state = state[-1]
+
+            return f_selection(state, transform)
 
     def train(
         self,

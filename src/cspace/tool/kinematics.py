@@ -107,16 +107,12 @@ def main():
                     *tuple(e.split(":", maxsplit=1) for e in args.joint)
                 )
                 joint, position = tuple(joint), tuple(float(e) for e in position)
-                state = cspace.torch.classes.JointStateCollection(joint, position)
 
+                state = cspace.torch.classes.JointStateCollection(joint, position)
                 assert joint == kinematics.joint, "{} vs. {}".format(
                     joint, kinematics.joint
                 )
-
                 pose = kinematics.forward(state)
-
-                inverse = kinematics.inverse(pose, repeat=args.repeat)
-                pred = kinematics.forward(inverse)
 
                 zero = cspace.torch.classes.JointStateCollection.apply(
                     kinematics.spec,
@@ -126,6 +122,10 @@ def main():
                     max=1.0,
                 )
                 mark = kinematics.forward(zero)
+
+                inverse = kinematics.inverse(pose, zero, repeat=args.repeat)
+                pred = kinematics.forward(inverse)
+
                 logger.info(
                     (
                         "\n"
