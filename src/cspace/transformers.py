@@ -254,8 +254,19 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
 
             return cspace.torch.classes.JointStateCollection(final.name, position)
 
-        def f_compose(pose, entries, processed, repeat, step):
-            return processed, f_pose(pose, repeat)
+        def f_encode(step, pose, processed, entries, repeat, bucket):
+            total = repeat
+            composed = [f_state(entries[0], total)]
+            for i in range(step):
+                composed.append(processed[i])
+            return composed, f_pose(pose, total)
+
+        def f_decode(step, pred, processed, entries, repeat, bucket):
+            total = repeat
+            composed = [f_state(entries[0], total)]
+            for i in range(step):
+                composed.append(processed[i])
+            return composed, pred
 
         repeat = repeat if repeat else 16
 
@@ -266,16 +277,19 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 rot=cspace.torch.ops.qua_to_rot(torch.transpose(orientation, -1, -2)),
             )
 
-            entries = [state]
-            processed = [f_state(state, repeat)]
+            entries, _ = self.bucketize(state)
 
+            processed = []
             for step in range(self.length):
-                data = self.encode(*f_compose(pose, entries, processed, repeat, step))
-
+                data = self.encode(
+                    *f_encode(step, pose, processed, entries, repeat, self.bucket)
+                )
                 pred = self.model(data)
-
-                processed.append(self.decode(processed, pred))
-
+                processed.append(
+                    self.decode(
+                        *f_decode(step, pred, processed, entries, repeat, self.bucket)
+                    )
+                )
             return f_selection(processed[-1], transform)
 
     def train(
