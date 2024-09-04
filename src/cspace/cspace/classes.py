@@ -120,6 +120,11 @@ class JointStateCollection(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
+    def concatenate(cls, entries):
+        raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
     def identity(cls):
         raise NotImplementedError
 

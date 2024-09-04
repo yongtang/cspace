@@ -126,6 +126,13 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
 
         return cls(joint, position)
 
+    @classmethod
+    def concatenate(cls, entries):
+        assert len(set(entry.name for entry in entries)) == 1
+        name = next(iter(entries)).name
+        position = torch.concatenate(list(entry.data for entry in entries), dim=0)
+        return cls(name, position)
+
     @functools.cache
     def index(self, name):
         return self.name.index(name)
