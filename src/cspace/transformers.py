@@ -254,27 +254,11 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
 
             return cspace.torch.classes.JointStateCollection(final.name, position)
 
-        def f_encode(step, pose, processed, entries, repeat, bucket):
-            composed = []
-            for i in range(step + 1):
-                entry = ([] if i == 0 else [processed[i - 1]]) + (
-                    [f_state(entries[i], (repeat * (step + 1 - i)))]
-                )
-                composed.append(
-                    cspace.torch.classes.JointStateCollection.concatenate(entry)
-                )
-            return composed, f_pose(pose, repeat * (step + 1))
+        def f_encode(pose, zero, state, processed, repeat):
+            return [f_state(zero, repeat)] + processed, f_pose(pose, repeat)
 
-        def f_decode(step, pred, processed, entries, repeat, bucket):
-            composed = []
-            for i in range(step + 1):
-                entry = ([] if i == 0 else [processed[i - 1]]) + (
-                    [f_state(entries[i], (repeat * (step + 1 - i)))]
-                )
-                composed.append(
-                    cspace.torch.classes.JointStateCollection.concatenate(entry)
-                )
-            return composed, pred
+        def f_decode(pred, zero, state, processed, repeat):
+            return [f_state(zero, repeat)] + processed, pred
 
         repeat = repeat if repeat else 16
 
@@ -285,18 +269,20 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 rot=cspace.torch.ops.qua_to_rot(torch.transpose(orientation, -1, -2)),
             )
 
-            entries, _ = self.bucketize(state)
+            zero = cspace.torch.classes.JointStateCollection.apply(
+                self.spec,
+                self.joint,
+                torch.zeros_like(state.data),
+                min=-1.0,
+                max=1.0,
+            )
 
             processed = []
             for step in range(self.length):
-                data = self.encode(
-                    *f_encode(step, pose, processed, entries, repeat, self.bucket)
-                )
+                data = self.encode(*f_encode(pose, zero, state, processed, repeat))
                 pred = self.model(data)
                 processed.append(
-                    self.decode(
-                        *f_decode(step, pred, processed, entries, repeat, self.bucket)
-                    )
+                    self.decode(*f_decode(pred, zero, state, processed, repeat))
                 )
             return f_selection(processed[-1], transform)
 
