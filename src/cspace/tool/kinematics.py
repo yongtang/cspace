@@ -46,9 +46,11 @@ def main():
                 "--joint", dest="joint", type=str, nargs="+", required=True
             )
             parser.add_argument("--repeat", dest="repeat", type=int, default=None)
+            parser.add_argument("--device", dest="device", type=str, default="cpu")
         else:
             parser.add_argument("--load", dest="load", type=str, required=True)
             parser.add_argument("--image", dest="image", type=str, required=True)
+            parser.add_argument("--device", dest="device", type=str, default="cpu")
     else:
         if func == "inverse":
             parser.add_argument("--save", dest="save", type=str, required=True)
@@ -69,6 +71,8 @@ def main():
                 )
                 parser.add_argument("--bucket", dest="bucket", type=int, default=None)
                 parser.add_argument("--length", dest="length", type=int, default=None)
+            else:
+                parser.add_argument("--device", dest="device", type=str, default="cpu")
         else:
             parser.add_argument("--save", dest="save", type=str, required=True)
             parser.add_argument("--load", dest="load", type=str, default=None)
@@ -84,6 +88,8 @@ def main():
                 parser.add_argument("--urdf", dest="urdf", type=str, required=True)
                 parser.add_argument("--bucket", dest="bucket", type=int, default=None)
                 parser.add_argument("--length", dest="length", type=int, default=None)
+            else:
+                parser.add_argument("--device", dest="device", type=str, default="cpu")
 
     args = parser.parse_args()
 
@@ -100,7 +106,7 @@ def main():
 
     if mode == "check":
         with accelerator.main_process_first():
-            kinematics = torch.load(args.load, map_location=torch.device("cpu"))
+            kinematics = torch.load(args.load, map_location=torch.device(args.device))
 
             if func == "inverse":
                 joint, position = zip(
@@ -287,7 +293,7 @@ def main():
     else:
         if func == "inverse":
             kinematics = (
-                torch.load(args.load, map_location=torch.device("cpu"))
+                torch.load(args.load, map_location=torch.device(args.device))
                 if args.load
                 else cspace.transformers.InverseKinematics(
                     pathlib.Path(args.urdf).read_text(),
@@ -307,7 +313,7 @@ def main():
             )
         else:
             kinematics = (
-                torch.load(args.load, map_location=torch.device("cpu"))
+                torch.load(args.load, map_location=torch.device(args.device))
                 if args.load
                 else cspace.transformers.PerceptionKinematics(
                     pathlib.Path(args.urdf).read_text(),
