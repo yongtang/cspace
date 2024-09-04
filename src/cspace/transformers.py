@@ -364,7 +364,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                     )
                     for step in range(self.length)
                 )
-                task = self.forward(
+                pose = self.forward(
                     cspace.torch.classes.JointStateCollection.apply(
                         self.spec,
                         self.joint,
@@ -374,7 +374,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                     )
                 )
                 for step in range(self.length):
-                    data = self.encode(state[0 : step + 1], task, delta)
+                    data = self.encode(state[0 : step + 1], pose, delta)
                     pred = model(data)
                     loss = self.loss_fn(
                         torch.unflatten(pred, -1, (self.bucket, -1)),
@@ -404,10 +404,10 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             )
         )
 
-    def encode(self, state, task, noise=None):
-        def f_value(self, entry, task, noise):
-            def f_task(mark, task, noise, index, name):
-                entry = mark.transform(name).inverse() * task.transform(name)
+    def encode(self, state, pose, noise=None):
+        def f_value(self, entry, pose, noise):
+            def f_pose(mark, pose, noise, index, name):
+                entry = mark.transform(name).inverse() * pose.transform(name)
                 if noise is not None:
                     xyz, rot = cspace.torch.ops.se3_exp(
                         torch.select(noise, dim=-2, index=index)
@@ -415,25 +415,25 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                     entry = entry * cspace.torch.classes.Transform(xyz=xyz, rot=rot)
                 return entry.log
 
-            assert entry.batch == task.batch, "{} vs. {}".format(
-                entry.batch, task.batch
+            assert entry.batch == pose.batch, "{} vs. {}".format(
+                entry.batch, pose.batch
             )
 
             mark = self.forward(entry)
             value = [entry.data] + list(
-                f_task(mark, task, noise, index, name)
-                for index, name in enumerate(task.name)
+                f_pose(mark, pose, noise, index, name)
+                for index, name in enumerate(pose.name)
             )
 
             value = tuple(entry.to(next(iter(value)).device) for entry in value)
 
             value = torch.concatenate(value, dim=-1)
 
-            value = torch.reshape(value, task.batch + (1, -1))
+            value = torch.reshape(value, pose.batch + (1, -1))
 
             return value
 
-        value = tuple(f_value(self, entry, task, noise) for entry in state)
+        value = tuple(f_value(self, entry, pose, noise) for entry in state)
 
         value = tuple(entry.to(next(iter(value)).device) for entry in value)
 
