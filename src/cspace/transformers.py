@@ -5,6 +5,7 @@ import PIL.Image
 import functools
 import pathlib
 import torch
+import math
 import json
 import io
 
@@ -58,13 +59,14 @@ class Model(torch.nn.Module):
 
 class JointStateEncoding:
     def decode(self, state, pred):
+        length = len(state) - 1
         pred = torch.unflatten(pred, -1, (self.bucket, -1))
         assert pred.shape[-2:] == (self.bucket, len(self.joint))
 
         index = torch.argmax(pred, dim=-2)
 
         prod = torch.cumprod(
-            torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand([len(state)]),
+            torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand([length]),
             dim=0,
         )[-1]
         zero = prod * self.bucket / 2.0
@@ -173,11 +175,56 @@ class InverseDataset(torch.utils.data.Dataset):
 
         self.scale = self.scale * 2.0  # (-1.0, 1.0)
 
+        self.start = torch.rand(total, len(joint)) * 2.0 - 1.0  # (-1.0, 1.0)
+
+        chunk = int(math.pow(bucket, length))
+
+        cost = (self.start - torch.select(self.scale, dim=-2, index=-1)) / 2.0
+        cost = torch.abs(cost)
+        cost = torch.clip(cost * (chunk - 1) + 1, min=1, max=chunk)
+
+        cost = 1.0 / cost
+
+        cost = torch.mean(cost, dim=-1)
+        cost = cost / torch.sum(cost)
+
+        cost = cost * total
+        count = torch.round(cost).to(torch.int64)
+
+        diff = total - torch.sum(count).item()
+
+        if diff > 0:
+            _, indices = torch.topk(cost - count, diff)
+            count[indices] += 1
+        elif diff < 0:
+            _, indices = torch.topk(count - cost, -diff)
+            count[indices] -= 1
+
+        assert torch.sum(count) == total
+
+        self.start = torch.repeat_interleave(
+            self.start, count, dim=0, output_size=total
+        )
+        self.scale = torch.repeat_interleave(
+            self.scale, count, dim=0, output_size=total
+        )
+        self.index = torch.repeat_interleave(
+            self.index, count, dim=0, output_size=total
+        )
+        self.noise = torch.repeat_interleave(
+            self.noise, count, dim=0, output_size=total
+        )
+
+        assert self.start.shape[0] == total
+        assert self.scale.shape[0] == total
+        assert self.index.shape[0] == total
+        assert self.noise.shape[0] == total
+
     def __len__(self):
-        return self.scale.shape[0]
+        return self.start.shape[0]
 
     def __getitem__(self, key):
-        return (self.scale[key], self.index[key], self.noise[key])
+        return (self.start[key], self.scale[key], self.index[key], self.noise[key])
 
 
 class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncoding):
@@ -255,10 +302,12 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             return cspace.torch.classes.JointStateCollection(final.name, position)
 
         def f_encode(pose, zero, state, processed, repeat):
-            return [f_state(zero, repeat)] + processed, f_pose(pose, repeat)
+            return [f_state(state, repeat), f_state(zero, repeat)] + processed, f_pose(
+                pose, repeat
+            )
 
         def f_decode(pred, zero, state, processed, repeat):
-            return [f_state(zero, repeat)] + processed, pred
+            return [f_state(state, repeat), f_state(zero, repeat)] + processed, pred
 
         repeat = repeat if repeat else 16
 
@@ -339,8 +388,16 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             model.train()
 
             loss_total, loss_count = 0, 0
-            for index, (scale, true, delta) in enumerate(dataloader):
-                state = tuple(
+            for index, (start, scale, true, delta) in enumerate(dataloader):
+                state = [
+                    cspace.torch.classes.JointStateCollection.apply(
+                        self.spec,
+                        self.joint,
+                        start,
+                        min=-1.0,
+                        max=1.0,
+                    )
+                ] + [
                     cspace.torch.classes.JointStateCollection.apply(
                         self.spec,
                         self.joint,
@@ -349,7 +406,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                         max=1.0,
                     )
                     for step in range(self.length)
-                )
+                ]
                 pose = self.forward(
                     cspace.torch.classes.JointStateCollection.apply(
                         self.spec,
@@ -360,7 +417,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                     )
                 )
                 for step in range(self.length):
-                    data = self.encode(state[0 : step + 1], pose, delta)
+                    data = self.encode(state[0 : 1 + step + 1], pose, delta)
                     pred = model(data)
                     loss = self.loss_fn(
                         torch.unflatten(pred, -1, (self.bucket, -1)),
