@@ -261,7 +261,7 @@ def main():
                     )
                 )
             else:
-                observation = kinematics.image(image)
+                observation = kinematics.image(args.image).to(torch.device(args.device))
                 perception = kinematics.perception(observation)
 
                 pred = kinematics.forward(perception)
@@ -269,7 +269,10 @@ def main():
                 zero = cspace.torch.classes.JointStateCollection.apply(
                     kinematics.spec,
                     kinematics.joint,
-                    torch.zeros(pose.batch + tuple([len(kinematics.joint)])),
+                    torch.zeros(
+                        pred.batch + tuple([len(kinematics.joint)]),
+                        device=torch.device(args.device),
+                    ),
                     min=-1.0,
                     max=1.0,
                 )
