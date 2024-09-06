@@ -232,7 +232,9 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             position = position.unsqueeze(0).expand(
                 *(tuple([count]) + state.batch + tuple([len(state.name)]))
             )
-            return cspace.torch.classes.JointStateCollection(state.name, position)
+            return cspace.torch.classes.JointStateCollection(
+                self.spec, state.name, position
+            )
 
         def f_selection(final, transform):
             position, orientation = self.forward(final).data
@@ -256,7 +258,9 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
 
             position = torch.select(final.data, dim=0, index=selection)
 
-            return cspace.torch.classes.JointStateCollection(final.name, position)
+            return cspace.torch.classes.JointStateCollection(
+                self.spec, final.name, position
+            )
 
         def f_encode(pose, zero, state, processed, repeat):
             return [f_state(zero, repeat)] + processed, f_pose(pose, repeat)
@@ -593,7 +597,9 @@ class PerceptionKinematics(
             loss_total, loss_count = 0, 0
             for index, (observation, value) in enumerate(dataloader):
                 state, true = self.bucketize(
-                    cspace.torch.classes.JointStateCollection(self.joint, value)
+                    cspace.torch.classes.JointStateCollection(
+                        self.spec, self.joint, value
+                    )
                 )
                 with torch.no_grad():
                     pixel = vision(pixel_values=observation).last_hidden_state

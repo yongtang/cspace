@@ -117,7 +117,9 @@ def main():
                     tuple(float(e) for e in position), device=torch.device(args.device)
                 )
 
-                state = cspace.torch.classes.JointStateCollection(joint, position)
+                state = cspace.torch.classes.JointStateCollection(
+                    kinematics.spec, joint, position
+                )
                 assert joint == kinematics.joint, "{} vs. {}".format(
                     joint, kinematics.joint
                 )
@@ -144,7 +146,9 @@ def main():
                         device=torch.device(args.device),
                     )
 
-                    start = cspace.torch.classes.JointStateCollection(joint, position)
+                    start = cspace.torch.classes.JointStateCollection(
+                        kinematics.spec, joint, position
+                    )
                     assert joint == kinematics.joint, "{} vs. {}".format(
                         joint, kinematics.joint
                     )

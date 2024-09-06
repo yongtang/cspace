@@ -201,6 +201,7 @@ def test_spec(device, urdf_file_tutorial):
     )
 
     state = cspace.torch.classes.JointStateCollection(
+        spec=spec,
         name=(
             "base_to_right_leg",
             "right_front_wheel_joint",
@@ -249,7 +250,11 @@ def test_spec(device, urdf_file_tutorial):
     joint = spec.joint("left_gripper_joint")
 
     xyz = torch.tensor(joint.origin.xyz, device=device, dtype=torch.float64)
-    rpy = torch.tensor((0, 0, 1.0), device=device, dtype=torch.float64)
+    rpy = torch.tensor(
+        (0, 0, 0.548),  # limit=0.548
+        device=device,
+        dtype=torch.float64,
+    )
     qua = torch.tensor(
         scipy.spatial.transform.Rotation.from_euler("xyz", rpy.cpu()).as_quat(),
         device=device,
@@ -266,7 +271,9 @@ def test_spec(device, urdf_file_tutorial):
     joint = spec.joint("gripper_extension")
 
     xyz = torch.tensor(joint.origin.xyz, device=device) + torch.tensor(
-        (-1.0, 0, 0), device=device, dtype=torch.float64
+        (-0.38, 0, 0),  # limit=-0.38
+        device=device,
+        dtype=torch.float64,
     )
     rpy = torch.tensor(joint.origin.rpy, device=device, dtype=torch.float64)
     qua = torch.tensor(
@@ -298,7 +305,7 @@ def test_transform(
         dtype=torch.float64,
         device=device,
     )
-    state = cspace.torch.classes.JointStateCollection(name, position)
+    state = cspace.torch.classes.JointStateCollection(spec, name, position)
 
     for link in spec.link:
         if link in link_pose_tutorial:

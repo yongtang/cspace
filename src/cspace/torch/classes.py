@@ -40,10 +40,28 @@ class LinkPoseCollection(cspace.cspace.classes.LinkPoseCollection):
 
 
 class JointStateCollection(cspace.cspace.classes.JointStateCollection):
-    def __init__(self, name, position):
+    def __init__(self, spec, name, position):
         super().__init__(name=name)
-        self._position_ = torch.as_tensor(position, dtype=torch.float64)
-        assert len(self.name) == self._position_.shape[-1]
+
+        position = torch.as_tensor(position, dtype=torch.float64)
+        assert len(self.name) == position.shape[-1]
+
+        zero = torch.tensor(
+            tuple(spec.joint(e).motion.zero for e in name),
+            dtype=torch.float64,
+            device=position.device,
+        )
+        limit = torch.tensor(
+            tuple(spec.joint(e).motion.limit for e in name),
+            dtype=torch.float64,
+            device=position.device,
+        )
+
+        self._position_ = torch.clip(
+            position,
+            min=zero - limit,
+            max=zero + limit,
+        )
 
     @property
     def data(self):
@@ -130,7 +148,7 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
             dim=-1,
         )
 
-        return cls(joint, position)
+        return cls(spec, joint, position)
 
     @classmethod
     def concatenate(cls, entries):

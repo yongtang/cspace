@@ -20,6 +20,7 @@ def test_kinematics_forward(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
     )
     state = cspace.torch.classes.JointStateCollection(
+        kinematics.spec,
         kinematics.joint,
         torch.tensor(
             tuple(joint_state_tutorial[name] for name in kinematics.joint),
@@ -118,6 +119,7 @@ def test_kinematics_inverse(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
     )
     state = cspace.torch.classes.JointStateCollection(
+        kinematics.spec,
         kinematics.joint,
         torch.tensor(
             tuple(joint_state_tutorial[name] for name in kinematics.joint),
@@ -291,7 +293,9 @@ def test_kinematics_perception(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
     )
     state = cspace.torch.classes.JointStateCollection(
-        kinematics.joint, tuple(joint_state_tutorial[name] for name in kinematics.joint)
+        kinematics.spec,
+        kinematics.joint,
+        tuple(joint_state_tutorial[name] for name in kinematics.joint),
     )
 
     pose = kinematics.forward(state)
