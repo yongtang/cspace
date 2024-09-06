@@ -66,11 +66,17 @@ class JointStateCollection(cspace.cspace.classes.JointStateCollection):
         link = link if len(link) else spec.link
         entries = tuple(self.transform(spec, item, base) for item in link)
         position = torch.stack(
-            tuple(entry.xyz.expand(*(self.batch + tuple([3]))) for entry in entries),
+            tuple(
+                entry.xyz.expand(*(self.batch + tuple([3]))).to(self.data.device)
+                for entry in entries
+            ),
             dim=-1,
         )
         orientation = torch.stack(
-            tuple(entry.qua.expand(*(self.batch + tuple([4]))) for entry in entries),
+            tuple(
+                entry.qua.expand(*(self.batch + tuple([4]))).to(self.data.device)
+                for entry in entries
+            ),
             dim=-1,
         )
         return LinkPoseCollection(base, link, position, orientation)
