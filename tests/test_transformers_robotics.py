@@ -112,20 +112,24 @@ def test_kinematics_inverse(
             noise=noise,
         )
 
-    kinematics = torch.load(saved)
+    kinematics = torch.load(saved, map_location=torch.device(device))
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
     )
     state = cspace.torch.classes.JointStateCollection(
-        kinematics.joint, tuple(joint_state_tutorial[name] for name in kinematics.joint)
+        kinematics.joint,
+        torch.tensor(
+            tuple(joint_state_tutorial[name] for name in kinematics.joint),
+            device=device,
+        ),
     )
     pose = kinematics.forward(state)
 
     zero = cspace.torch.classes.JointStateCollection.apply(
         kinematics.spec,
         kinematics.joint,
-        torch.zeros([len(kinematics.joint)]),
+        torch.zeros([len(kinematics.joint)], device=device),
         min=-1.0,
         max=1.0,
     )
