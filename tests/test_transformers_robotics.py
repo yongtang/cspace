@@ -285,7 +285,7 @@ def test_kinematics_perception(
             batch=batch,
         )
 
-    kinematics = torch.load(saved)
+    kinematics = torch.load(saved, map_location=torch.device(device))
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
@@ -297,7 +297,7 @@ def test_kinematics_perception(
     pose = kinematics.forward(state)
 
     with open(image_file_tutorial, "rb") as f:
-        observation = kinematics.image(f.read())
+        observation = kinematics.image(f.read()).to(device)
 
     perception = kinematics.perception(observation)
     pred = kinematics.forward(perception)

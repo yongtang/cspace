@@ -70,7 +70,7 @@ class JointStateEncoding:
         zero = prod * self.bucket / 2.0
 
         scale = (
-            state[-1].scale(self.spec, min=-1.0, max=1.0).to(index.device)
+            state[-1].scale(self.spec, min=-1.0, max=1.0)
             + torch.sub(torch.add(torch.multiply(index, prod), prod / 2), zero) * 2.0
         )  # (-1.0, 1.0)
 
@@ -82,15 +82,19 @@ class JointStateEncoding:
     def bucketize(self, state):
         value = state.scale(spec=self.spec, min=-1.0, max=1.0)
 
+        prod, zero = self.chunk["prod"].to(value.device), self.chunk["zero"].to(
+            value.device
+        )
+
         true = []
         for step in range(self.length):
-            entry = torch.bucketize(value, self.chunk["prod"][step])
-            value = value - self.chunk["zero"][step][entry]
+            entry = torch.bucketize(value, prod[step])
+            value = value - zero[step][entry]
             true.append(entry)
 
         scale = [torch.zeros_like(value)]
         for step in range(self.length - 1):
-            entry = scale[-1] + self.chunk["zero"][step][true[step]]
+            entry = scale[-1] + zero[step][true[step]]
             scale.append(entry)
 
         true = torch.stack(true, dim=-2)
@@ -411,8 +415,6 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 for index, name in enumerate(pose.name)
             )
 
-            value = tuple(entry.to(next(iter(value)).device) for entry in value)
-
             value = torch.concatenate(value, dim=-1)
 
             value = torch.reshape(value, pose.batch + (1, -1))
@@ -420,8 +422,6 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             return value
 
         value = tuple(f_value(self, entry, pose, noise) for entry in state)
-
-        value = tuple(entry.to(next(iter(value)).device) for entry in value)
 
         return torch.concatenate(value, dim=-2)
 
@@ -503,14 +503,20 @@ class PerceptionKinematics(
                 cspace.torch.classes.JointStateCollection.apply(
                     self.spec,
                     self.joint,
-                    torch.zeros(batch + tuple([len(self.joint)])),
+                    torch.zeros(
+                        batch + tuple([len(self.joint)]), device=observation.device
+                    ),
                     min=-1.0,
                     max=1.0,
                 )
             ]
 
+            pixel = self.vision.to(observation.device)(
+                pixel_values=observation
+            ).last_hidden_state
+
             for step in range(self.length):
-                data = self.encode(state, observation)
+                data = self.encode(state, pixel)
 
                 pred = self.model(data)
 
@@ -582,14 +588,18 @@ class PerceptionKinematics(
                 )
             )
 
+            vision = accelerator.prepare(self.vision)
+
             loss_total, loss_count = 0, 0
             for index, (observation, value) in enumerate(dataloader):
                 state, true = self.bucketize(
                     cspace.torch.classes.JointStateCollection(self.joint, value)
                 )
+                with torch.no_grad():
+                    pixel = vision(pixel_values=observation).last_hidden_state
 
                 for step in range(self.length):
-                    data = self.encode(state[0 : step + 1], observation)
+                    data = self.encode(state[0 : step + 1], pixel)
                     pred = model(data)
                     loss = self.loss_fn(
                         torch.unflatten(pred, -1, (self.bucket, -1)),
@@ -619,13 +629,12 @@ class PerceptionKinematics(
             )
         )
 
-    def encode(self, state, observation):
+    def encode(self, state, pixel):
         def f_entry(self, entry):
             value = tuple(
                 torch.unsqueeze(entry.position(self.spec, name), -1)
                 for name in entry.name
             )
-            value = tuple(entry.to(next(iter(value)).device) for entry in value)
             value = torch.concatenate(value, dim=-1)
 
             value = torch.reshape(value, entry.batch + (1, -1))
@@ -634,12 +643,7 @@ class PerceptionKinematics(
 
         value = tuple(f_entry(self, entry) for entry in state)
 
-        value = tuple(entry.to(next(iter(value)).device) for entry in value)
-
         value = torch.concatenate(value, dim=-2)
-
-        with torch.no_grad():
-            pixel = self.vision(pixel_values=observation).last_hidden_state
 
         total = value.shape[-1] + pixel.shape[-1]
 
