@@ -74,8 +74,6 @@ def main():
                 )
                 parser.add_argument("--bucket", dest="bucket", type=int, default=None)
                 parser.add_argument("--length", dest="length", type=int, default=None)
-            else:
-                parser.add_argument("--device", dest="device", type=str, default="cpu")
         else:
             parser.add_argument("--save", dest="save", type=str, required=True)
             parser.add_argument("--load", dest="load", type=str, default=None)
@@ -115,7 +113,9 @@ def main():
                 joint, position = zip(
                     *tuple(e.split(":", maxsplit=1) for e in args.joint)
                 )
-                joint, position = tuple(joint), tuple(float(e) for e in position)
+                joint, position = tuple(joint), torch.tensor(
+                    tuple(float(e) for e in position), device=torch.device(args.device)
+                )
 
                 state = cspace.torch.classes.JointStateCollection(joint, position)
                 assert joint == kinematics.joint, "{} vs. {}".format(
@@ -126,7 +126,10 @@ def main():
                 zero = cspace.torch.classes.JointStateCollection.apply(
                     kinematics.spec,
                     kinematics.joint,
-                    torch.zeros(pose.batch + tuple([len(kinematics.joint)])),
+                    torch.zeros(
+                        pose.batch + tuple([len(kinematics.joint)]),
+                        device=torch.device(args.device),
+                    ),
                     min=-1.0,
                     max=1.0,
                 )
@@ -136,7 +139,10 @@ def main():
                     joint, position = zip(
                         *tuple(e.split(":", maxsplit=1) for e in args.start)
                     )
-                    joint, position = tuple(joint), tuple(float(e) for e in position)
+                    joint, position = tuple(joint), torch.tensor(
+                        tuple(float(e) for e in position),
+                        device=torch.device(args.device),
+                    )
 
                     start = cspace.torch.classes.JointStateCollection(joint, position)
                     assert joint == kinematics.joint, "{} vs. {}".format(
@@ -333,7 +339,7 @@ def main():
     else:
         if func == "inverse":
             kinematics = (
-                torch.load(args.load, map_location=torch.device(args.device))
+                torch.load(args.load)
                 if args.load
                 else cspace.transformers.InverseKinematics(
                     pathlib.Path(args.urdf).read_text(),
@@ -353,7 +359,7 @@ def main():
             )
         else:
             kinematics = (
-                torch.load(args.load, map_location=torch.device(args.device))
+                torch.load(args.load)
                 if args.load
                 else cspace.transformers.PerceptionKinematics(
                     pathlib.Path(args.urdf).read_text(),
