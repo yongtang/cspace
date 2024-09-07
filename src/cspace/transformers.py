@@ -527,16 +527,15 @@ class PerceptionKinematics(
                 max=1.0,
             )
 
+            processed = []
             for step in range(self.length):
-                data = self.encode(state, pose)
+                data = self.encode(*f_encode(pose, zero, processed))
 
                 pred = self.model(data)
 
-                state.append(self.decode(state, pred))
+                processed.append(self.decode(*f_decode(pred, zero, processed)))
 
-            state = state[-1]
-
-            return state
+            return processed[-1]
 
     def image(self, file, device=None):
         return torch.as_tensor(
@@ -613,10 +612,10 @@ class PerceptionKinematics(
                     )
                 )
                 with torch.no_grad():
-                    pixel = vision(pixel_values=observation).last_hidden_state
+                    pose = vision(pixel_values=observation).last_hidden_state
 
                 for step in range(self.length):
-                    data = self.encode(state[0 : step + 1], pixel)
+                    data = self.encode(state[0 : step + 1], pose)
                     pred = model(data)
                     loss = self.loss_fn(
                         torch.unflatten(pred, -1, (self.bucket, -1)),
