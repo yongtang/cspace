@@ -503,6 +503,13 @@ class PerceptionKinematics(
         with torch.no_grad():
             batch = observation.shape[:-3]
 
+            pose = self.vision.to(observation.device)(
+                pixel_values=torch.reshape(
+                    observation, tuple([-1]) + observation.shape[-3:]
+                )
+            ).last_hidden_state
+            pose = torch.reshape(pose, batch + pose.shape[-2:])
+
             state = [
                 cspace.torch.classes.JointStateCollection.apply(
                     self.spec,
@@ -515,12 +522,8 @@ class PerceptionKinematics(
                 )
             ]
 
-            pixel = self.vision.to(observation.device)(
-                pixel_values=observation
-            ).last_hidden_state
-
             for step in range(self.length):
-                data = self.encode(state, pixel)
+                data = self.encode(state, pose)
 
                 pred = self.model(data)
 
@@ -530,13 +533,16 @@ class PerceptionKinematics(
 
             return state
 
-    def image(self, file):
-        return self.processor(
-            PIL.Image.open(
-                io.BytesIO(file) if isinstance(file, bytes) else file
-            ).convert("RGB"),
-            return_tensors="pt",
-        ).pixel_values
+    def image(self, file, device=None):
+        return torch.as_tensor(
+            self.processor(
+                PIL.Image.open(
+                    io.BytesIO(file) if isinstance(file, bytes) else file
+                ).convert("RGB"),
+                return_tensors="pt",
+            ).pixel_values[0],
+            device=device,
+        )
 
     def train(
         self,

@@ -301,7 +301,7 @@ def test_kinematics_perception(
     pose = kinematics.forward(state)
 
     with open(image_file_tutorial, "rb") as f:
-        observation = kinematics.image(f.read()).to(device)
+        observation = kinematics.image(f.read(), device=device)
 
     perception = kinematics.perception(observation)
     pred = kinematics.forward(perception)
@@ -309,7 +309,7 @@ def test_kinematics_perception(
     logger.info(
         (
             "\n"
-            + "[Policy Kinematics]\n"
+            + "[Perception Kinematics]\n"
             + "\n"
             + "Limit:{}\n"
             + "\n"

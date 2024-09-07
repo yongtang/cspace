@@ -265,7 +265,9 @@ def main():
                     )
                 )
             else:
-                observation = kinematics.image(args.image).to(torch.device(args.device))
+                observation = kinematics.image(
+                    args.image, device=torch.device(args.device)
+                )
                 perception = kinematics.perception(observation)
 
                 pred = kinematics.forward(perception)
