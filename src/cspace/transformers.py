@@ -15,9 +15,10 @@ class Model(torch.nn.Module):
         transformer.get_input_embeddings().reset_parameters()
         for param in transformer.get_input_embeddings().parameters():
             param.requires_grad = False
-        transformer.get_output_embeddings().reset_parameters()
-        for param in transformer.get_output_embeddings().parameters():
-            param.requires_grad = False
+        if transformer.get_output_embeddings():
+            transformer.get_output_embeddings().reset_parameters()
+            for param in transformer.get_output_embeddings().parameters():
+                param.requires_grad = False
 
         self.transformer = transformer
         self.input_embeddings = input_embeddings
@@ -195,7 +196,15 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             self.bucket = bucket if bucket else 10
             self.length = length if length else 3
 
-            transformer = transformers.AutoModelForCausalLM.from_pretrained(model)
+            assert model == "gpt2"
+            config = transformers.GPT2Config(
+                resid_pdrop=0,
+                embd_pdrop=0,
+                attn_pdrop=0,
+                summary_first_dropout=0,
+            )
+            transformer = transformers.AutoModel.from_config(config)
+
             input_embeddings = torch.nn.Linear(
                 (len(self.joint) * 1 + len(self.link) * 6),
                 transformer.get_input_embeddings().embedding_dim,
@@ -205,7 +214,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             output_embeddings = torch.nn.Linear(
                 transformer.get_input_embeddings().embedding_dim,
                 (len(self.joint) * self.bucket),
-                dtype=transformer.get_output_embeddings().weight.dtype,
+                dtype=transformer.get_input_embeddings().weight.dtype,
                 bias=False,
             )
 
