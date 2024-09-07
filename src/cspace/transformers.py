@@ -500,6 +500,13 @@ class PerceptionKinematics(
             self.model = Model(transformer, input_embeddings, output_embeddings)
 
     def perception(self, observation):
+
+        def f_encode(pose, zero, processed):
+            return [zero] + processed, pose
+
+        def f_decode(pred, zero, processed):
+            return [zero] + processed, pred
+
         with torch.no_grad():
             batch = observation.shape[:-3]
 
@@ -510,17 +517,15 @@ class PerceptionKinematics(
             ).last_hidden_state
             pose = torch.reshape(pose, batch + pose.shape[-2:])
 
-            state = [
-                cspace.torch.classes.JointStateCollection.apply(
-                    self.spec,
-                    self.joint,
-                    torch.zeros(
-                        batch + tuple([len(self.joint)]), device=observation.device
-                    ),
-                    min=-1.0,
-                    max=1.0,
-                )
-            ]
+            zero = cspace.torch.classes.JointStateCollection.apply(
+                self.spec,
+                self.joint,
+                torch.zeros(
+                    batch + tuple([len(self.joint)]), device=observation.device
+                ),
+                min=-1.0,
+                max=1.0,
+            )
 
             for step in range(self.length):
                 data = self.encode(state, pose)
