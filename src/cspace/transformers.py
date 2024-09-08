@@ -24,23 +24,32 @@ class Model(torch.nn.Module):
         self.input_embeddings = input_embeddings
         self.output_embeddings = output_embeddings
 
-    def forward(self, data):
-        batch = list(data.shape[:-2])
-
+    def batch(self, data, length):
         data = torch.reshape(data, [-1] + list(data.shape[-2:]))
 
-        data = list(
-            map(
-                lambda e: e.to(self.input_embeddings.weight.dtype).to(
-                    self.input_embeddings.weight.device
-                ),
-                data,
-            )
+        mask = torch.concatenate(
+            (
+                torch.ones((data.shape[0], data.shape[1])),
+                torch.zeros((data.shape[0], length - data.shape[1])),
+            ),
+            dim=-1,
         )
-        mask = list(map(lambda e: torch.ones(len(e), device=e.device), data))
 
-        data = torch.nn.utils.rnn.pad_sequence(data, batch_first=True)
-        mask = torch.nn.utils.rnn.pad_sequence(mask, batch_first=True)
+        data = torch.concatenate(
+            (
+                data,
+                torch.zeros((data.shape[0], length - data.shape[1], data.shape[2])),
+            ),
+            dim=-2,
+        )
+
+        return data, mask
+
+    def forward(self, data, mask):
+        data = data.to(self.input_embeddings.weight.dtype)
+        data = data.to(self.input_embeddings.weight.device)
+        mask = mask.to(self.input_embeddings.weight.device)
+
         data = self.transformer(
             inputs_embeds=self.input_embeddings(data),
             attention_mask=mask,
@@ -51,9 +60,6 @@ class Model(torch.nn.Module):
         )
 
         data = self.output_embeddings(data)
-
-        data = torch.reshape(data, batch + list(data.shape[-1:]))
-
         return data
 
 
@@ -143,18 +149,20 @@ class JointStateEncoding:
 
 
 class InverseDataset(torch.utils.data.Dataset):
-    def __init__(self, joint, link, bucket, length, total, noise=None):
+    def __init__(
+        self, spec, joint, link, base, bucket, length, total, encode, noise=None
+    ):
         total = total if noise is None else (noise * total)
 
-        self.index = torch.randint(
+        index = torch.randint(
             low=0, high=bucket, size=(total, length, len(joint)), dtype=torch.int64
         )
         if not noise:
-            self.noise = torch.zeros((total, len(link), 6), dtype=torch.float64)
+            noise = torch.zeros((total, len(link), 6), dtype=torch.float64)
         else:
             std = torch.tensor(0.01, dtype=torch.float64).expand(total, len(link), 6)
             mean = torch.tensor(0.0, dtype=torch.float64).expand(total, len(link), 6)
-            self.noise = torch.normal(mean, std)
+            noise = torch.normal(mean, std)
 
         prod = torch.cumprod(
             torch.tensor(1.0 / bucket, dtype=torch.float64).expand([1, length, 1]),
@@ -162,27 +170,83 @@ class InverseDataset(torch.utils.data.Dataset):
         )
         zero = prod * bucket / 2.0
 
-        self.scale = torch.sub(
-            torch.add(torch.multiply(self.index, prod), prod / 2), zero
-        )
+        scale = torch.sub(torch.add(torch.multiply(index, prod), prod / 2), zero)
 
-        self.scale = torch.concatenate(
+        scale = torch.concatenate(
             (
                 torch.zeros((total, 1, len(joint)), dtype=torch.float64),
-                self.scale,
+                scale,
             ),
             dim=-2,
         )
 
-        self.scale = torch.cumsum(self.scale, dim=-2)  # (-0.5, 0.5)
+        scale = torch.cumsum(scale, dim=-2)  # (-0.5, 0.5)
 
-        self.scale = self.scale * 2.0  # (-1.0, 1.0)
+        scale = scale * 2.0  # (-1.0, 1.0)
+
+        state = tuple(
+            cspace.torch.classes.JointStateCollection.apply(
+                spec,
+                joint,
+                torch.select(scale, dim=-2, index=step),
+                min=-1.0,
+                max=1.0,
+            )
+            for step in range(length)
+        )
+
+        pose = cspace.torch.classes.JointStateCollection.apply(
+            spec,
+            joint,
+            torch.select(scale, dim=-2, index=length),
+            min=-1.0,
+            max=1.0,
+        ).forward(spec, *link, base=base)
+
+        entries = list(
+            encode(state[0 : step + 1], pose, noise) for step in range(length)
+        )
+
+        def f_data(entry, length):
+            return torch.concatenate(
+                (
+                    entry,
+                    torch.zeros(
+                        (entry.shape[0], length - entry.shape[1], entry.shape[2])
+                    ),
+                ),
+                dim=-2,
+            )
+
+        def f_mask(entry, length):
+            return torch.concatenate(
+                (
+                    torch.ones((entry.shape[0], entry.shape[1])),
+                    torch.zeros((entry.shape[0], length - entry.shape[1])),
+                ),
+                dim=-1,
+            )
+
+        def f_true(entry, length, index):
+            return torch.select(index, dim=-2, index=entry.shape[1] - 1)
+
+        self.data = torch.concatenate(
+            list(f_data(entry, length) for entry in entries), dim=0
+        )
+
+        self.mask = torch.concatenate(
+            list(f_mask(entry, length) for entry in entries), dim=0
+        )
+
+        self.true = torch.concatenate(
+            list(f_true(entry, length, index) for entry in entries), dim=0
+        )
 
     def __len__(self):
-        return self.scale.shape[0]
+        return self.data.shape[0]
 
     def __getitem__(self, key):
-        return (self.scale[key], self.index[key], self.noise[key])
+        return (self.data[key], self.mask[key], self.true[key])
 
 
 class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncoding):
@@ -297,7 +361,11 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             processed = []
             for step in range(self.length):
                 data = self.encode(*f_encode(pose, zero, state, processed, repeat))
-                pred = self.model(data)
+
+                pred = self.model(*self.model.batch(data, self.length))
+
+                pred = torch.reshape(pred, data.shape[:-2] + pred.shape[-1:])
+
                 processed.append(
                     self.decode(*f_decode(pred, zero, state, processed, repeat))
                 )
@@ -329,21 +397,25 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
         )
 
         logger.info(
-            "[Train] ----- Dataset: (total={}, batch={}) - creation".format(
-                total, batch
+            "[Train] ----- Dataset: (total={}, length={}, noise={}) - (batch={}) - creation".format(
+                total, self.length, noise, batch
             )
         )
 
         if total > 0:
 
             dataset = cspace.transformers.InverseDataset(
+                self.spec,
                 self.joint,
                 self.link,
+                self.base,
                 self.bucket,
                 self.length,
                 total,
+                self.encode,
                 noise=noise,
             )
+            assert len(dataset) == total * self.length * (noise if noise else 1)
             dataloader = torch.utils.data.DataLoader(
                 dataset,
                 batch_size=batch,
@@ -356,54 +428,35 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             model.train()
 
             loss_total, loss_count = 0, 0
-            for index, (scale, true, delta) in enumerate(dataloader):
-                state = tuple(
-                    cspace.torch.classes.JointStateCollection.apply(
-                        self.spec,
-                        self.joint,
-                        torch.select(scale, dim=-2, index=step),
-                        min=-1.0,
-                        max=1.0,
-                    )
-                    for step in range(self.length)
+            for index, (data, mask, true) in enumerate(dataloader):
+                pred = model(data, mask)
+                loss = self.loss_fn(
+                    torch.unflatten(pred, -1, (self.bucket, -1)),
+                    true,
                 )
-                pose = self.forward(
-                    cspace.torch.classes.JointStateCollection.apply(
-                        self.spec,
-                        self.joint,
-                        torch.select(scale, dim=-2, index=self.length),
-                        min=-1.0,
-                        max=1.0,
-                    )
-                )
-                for step in range(self.length):
-                    data = self.encode(state[0 : step + 1], pose, delta)
-                    pred = model(data)
-                    loss = self.loss_fn(
-                        torch.unflatten(pred, -1, (self.bucket, -1)),
-                        torch.select(true, dim=-2, index=step),
-                    )
-                    accelerator.backward(loss)
-                    optimizer.step()
-                    scheduler.step()
-                    optimizer.zero_grad()
-                    loss = accelerator.gather_for_metrics(loss)
-                    pred = accelerator.gather_for_metrics(pred)
-                    loss_total += loss.sum().item()
-                    loss_count += len(pred)
+                accelerator.backward(loss)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+                loss = accelerator.gather_for_metrics(loss)
+                pred = accelerator.gather_for_metrics(pred)
+                loss_total += loss.sum().item()
+                loss_count += len(pred)
                 logger.info(
-                    "[Train] ----- Dataset: (total={}, batch={}) - {}/{} - Loss: {}".format(
+                    "[Train] ----- Dataset: (total={}, length={}, noise={}) - (batch={}) - (count={}/{}) - Loss: {}".format(
                         total,
+                        self.length,
+                        noise,
                         batch,
                         (index + 1) * batch,
-                        total,
+                        len(dataset),
                         loss_total / loss_count,
                     )
                 )
         accelerator.save(self, save) if save else None
         logger.info(
-            "[Train] ----- Dataset: (total={}, batch={}) - complete".format(
-                total, batch
+            "[Train] ----- Dataset: (total={}, length={}, noise={}) - (batch={}) - complete".format(
+                total, self.length, noise, batch
             )
         )
 
@@ -540,7 +593,9 @@ class PerceptionKinematics(
             for step in range(self.length):
                 data = self.encode(*f_encode(pose, zero, processed))
 
-                pred = self.model(data)
+                pred = self.model(*self.model.batch(data, pose.shape[-2] + self.length))
+
+                pred = torch.reshape(pred, data.shape[:-2] + pred.shape[-1:])
 
                 processed.append(self.decode(*f_decode(pred, zero, processed)))
 
@@ -625,7 +680,10 @@ class PerceptionKinematics(
 
                 for step in range(self.length):
                     data = self.encode(state[0 : step + 1], pose)
-                    pred = model(data)
+                    pred = self.model(
+                        *self.model.batch(data, pose.shape[-2] + self.length)
+                    )
+                    pred = torch.reshape(pred, data.shape[:-2] + pred.shape[-1:])
                     loss = self.loss_fn(
                         torch.unflatten(pred, -1, (self.bucket, -1)),
                         torch.select(true, dim=-2, index=step),
