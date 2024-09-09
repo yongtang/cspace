@@ -81,22 +81,16 @@ class JointStateEncoding:
         return state
 
     def bucketize(self, state):
-        value = state.scale(spec=self.spec, min=-1.0, max=1.0)
-
-        prod, zero = self.chunk["prod"].to(value.device), self.chunk["zero"].to(
-            value.device
-        )
+        value = state.scale(spec=self.spec, min=0.0, max=1.0)
 
         true = []
-        for step in range(self.length):
-            entry = torch.bucketize(value, prod[step])
-            value = value - zero[step][entry]
-            true.append(entry)
-
         scale = [torch.zeros_like(value)]
-        for step in range(self.length - 1):
-            entry = scale[-1] + zero[step][true[step]]
-            scale.append(entry)
+        for step in range(self.length):
+            entry = value // self.prod[step]
+            value = value % self.prod[step]
+            true.append(entry)
+            scale.append(entry * self.prod[step])
+        scale = scale[:-1]
 
         true = torch.stack(true, dim=-2)
         scale = torch.stack(scale, dim=-2)
@@ -106,11 +100,12 @@ class JointStateEncoding:
                 self.spec,
                 self.joint,
                 torch.select(scale, dim=-2, index=step),
-                min=-1.0,
+                min=0.0,
                 max=1.0,
             )
             for step in range(self.length)
         )
+        true = true.to(torch.int64)
         return state, true
 
     @functools.cached_property
@@ -560,7 +555,7 @@ class PerceptionKinematics(
                 torch.zeros(
                     batch + tuple([len(self.joint)]), device=observation.device
                 ),
-                min=-1.0,
+                min=0.0,
                 max=1.0,
             )
 
