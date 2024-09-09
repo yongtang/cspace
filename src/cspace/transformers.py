@@ -68,21 +68,15 @@ class JointStateEncoding:
         pred = torch.unflatten(pred, -1, (self.bucket, -1))
         assert pred.shape[-2:] == (self.bucket, len(self.joint))
 
+        prod = self.prod[len(state) - 1]
         index = torch.argmax(pred, dim=-2)
 
-        prod = torch.cumprod(
-            torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand([len(state)]),
-            dim=0,
-        )[-1]
-        zero = prod * self.bucket / 2.0
-
-        scale = (
-            state[-1].scale(self.spec, min=-1.0, max=1.0)
-            + torch.sub(torch.add(torch.multiply(index, prod), prod / 2), zero) * 2.0
-        )  # (-1.0, 1.0)
+        scale = state[-1].scale(self.spec, min=0.0, max=1.0)
+        scale = scale + torch.multiply(index, prod)
+        scale = scale % 1.0
 
         state = cspace.torch.classes.JointStateCollection.apply(
-            self.spec, self.joint, scale, min=-1.0, max=1.0
+            self.spec, self.joint, scale, min=0.0, max=1.0
         )
         return state
 
@@ -120,76 +114,66 @@ class JointStateEncoding:
         return state, true
 
     @functools.cached_property
-    def chunk(self):
-        prod = (
-            torch.cumprod(
-                torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand(
-                    [self.length, 1]
-                ),
-                dim=-2,
-            )
-            * self.bucket
+    def prod(self):
+        return torch.cumprod(
+            torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand([self.length]),
+            dim=0,
         )
-
-        zero = prod.expand(self.length, self.bucket) * torch.linspace(
-            start=-1.0 + 1.0 / self.bucket,
-            end=1.0 - 1.0 / self.bucket,
-            steps=self.bucket,
-            dtype=torch.float64,
-        ).expand(self.length, self.bucket)
-
-        prod = prod.expand(self.length, self.bucket - 1) * torch.linspace(
-            start=-1.0 + 2.0 / self.bucket,
-            end=1.0 - 2.0 / self.bucket,
-            steps=self.bucket - 1,
-            dtype=torch.float64,
-        ).expand(self.length, self.bucket - 1)
-
-        return {"prod": prod, "zero": zero}
 
 
 class InverseDataset(torch.utils.data.Dataset):
     def __init__(
-        self, spec, joint, link, base, bucket, length, total, encode, noise=None
+        self, *, spec, joint, link, base, bucket, length, total, noise, encode, device
     ):
         total = total if noise is None else (noise * total)
 
         index = torch.randint(
-            low=0, high=bucket, size=(total, length, len(joint)), dtype=torch.int64
+            low=0,
+            high=bucket,
+            size=(total, length, len(joint)),
+            dtype=torch.int64,
+            device=device,
         )
         if not noise:
-            noise = torch.zeros((total, len(link), 6), dtype=torch.float64)
+            noise = torch.zeros(
+                (total, len(link), 6), dtype=torch.float64, device=device
+            )
         else:
-            std = torch.tensor(0.01, dtype=torch.float64).expand(total, len(link), 6)
-            mean = torch.tensor(0.0, dtype=torch.float64).expand(total, len(link), 6)
+            std = torch.tensor(0.01, dtype=torch.float64, device=device).expand(
+                total, len(link), 6
+            )
+            mean = torch.tensor(0.0, dtype=torch.float64, device=device).expand(
+                total, len(link), 6
+            )
             noise = torch.normal(mean, std)
 
         prod = torch.cumprod(
-            torch.tensor(1.0 / bucket, dtype=torch.float64).expand([1, length, 1]),
+            torch.tensor(1.0 / bucket, dtype=torch.float64, device=device).expand(
+                [1, length, 1]
+            ),
             dim=-2,
         )
-        zero = prod * bucket / 2.0
 
-        scale = torch.sub(torch.add(torch.multiply(index, prod), prod / 2), zero)
+        scale = torch.multiply(index, prod)
 
         scale = torch.concatenate(
             (
-                torch.zeros((total, 1, len(joint)), dtype=torch.float64),
+                torch.rand(total, 1, len(joint), dtype=torch.float64, device=device),
                 scale,
             ),
             dim=-2,
         )
 
-        scale = torch.cumsum(scale, dim=-2)  # (-0.5, 0.5)
+        scale = torch.cumsum(scale, dim=-2)
 
-        scale = scale * 2.0  # (-1.0, 1.0)
+        scale = scale % 2.0  # (0.0, 1.0)
 
         state = tuple(
             cspace.torch.classes.JointStateCollection.apply(
                 spec,
                 joint,
                 torch.select(scale, dim=-2, index=step),
-                min=-1.0,
+                min=0.0,
                 max=1.0,
             )
             for step in range(length)
@@ -199,7 +183,7 @@ class InverseDataset(torch.utils.data.Dataset):
             spec,
             joint,
             torch.select(scale, dim=-2, index=length),
-            min=-1.0,
+            min=0.0,
             max=1.0,
         ).forward(spec, *link, base=base)
 
@@ -335,11 +319,11 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 self.spec, final.name, position
             )
 
-        def f_encode(pose, zero, state, processed, repeat):
-            return [f_state(zero, repeat)] + processed, f_pose(pose, repeat)
+        def f_encode(pose, state, processed, repeat):
+            return [f_state(state, repeat)] + processed, f_pose(pose, repeat)
 
-        def f_decode(pred, zero, state, processed, repeat):
-            return [f_state(zero, repeat)] + processed, pred
+        def f_decode(pred, state, processed, repeat):
+            return [f_state(state, repeat)] + processed, pred
 
         repeat = repeat if repeat else 16
 
@@ -350,25 +334,15 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 rot=cspace.torch.ops.qua_to_rot(torch.transpose(orientation, -1, -2)),
             )
 
-            zero = cspace.torch.classes.JointStateCollection.apply(
-                self.spec,
-                self.joint,
-                torch.zeros_like(state.data),
-                min=-1.0,
-                max=1.0,
-            )
-
             processed = []
             for step in range(self.length):
-                data = self.encode(*f_encode(pose, zero, state, processed, repeat))
+                data = self.encode(*f_encode(pose, state, processed, repeat))
 
                 pred = self.model(*self.model.batch(data, self.length))
 
                 pred = torch.reshape(pred, data.shape[:-2] + pred.shape[-1:])
 
-                processed.append(
-                    self.decode(*f_decode(pred, zero, state, processed, repeat))
-                )
+                processed.append(self.decode(*f_decode(pred, state, processed, repeat)))
             return f_selection(processed[-1], transform)
 
     def train(
@@ -397,25 +371,26 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
         )
 
         logger.info(
-            "[Train] ----- Dataset: (total={}, length={}, noise={}) - (batch={}) - creation".format(
-                total, self.length, noise, batch
+            "[Train] ----- Dataset: (length={}, total={}, noise={}) - (batch={}) - creation".format(
+                self.length, total, noise, batch
             )
         )
 
         if total > 0:
 
             dataset = cspace.transformers.InverseDataset(
-                self.spec,
-                self.joint,
-                self.link,
-                self.base,
-                self.bucket,
-                self.length,
-                total,
-                self.encode,
+                spec=self.spec,
+                joint=self.joint,
+                link=self.link,
+                base=self.base,
+                bucket=self.bucket,
+                length=self.length,
+                total=total,
                 noise=noise,
+                encode=self.encode,
+                device=None,
             )
-            assert len(dataset) == total * self.length * (noise if noise else 1)
+            assert len(dataset) == self.length * total * (noise if noise else 1)
             dataloader = torch.utils.data.DataLoader(
                 dataset,
                 batch_size=batch,
@@ -443,9 +418,9 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 loss_total += loss.sum().item()
                 loss_count += len(pred)
                 logger.info(
-                    "[Train] ----- Dataset: (total={}, length={}, noise={}) - (batch={}) - (count={}/{}) - Loss: {}".format(
-                        total,
+                    "[Train] ----- Dataset: (length={}, total={}, noise={}) - (batch={}) - (count={}/{}) - Loss: {}".format(
                         self.length,
+                        total,
                         noise,
                         batch,
                         (index + 1) * batch,
@@ -455,8 +430,8 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 )
         accelerator.save(self, save) if save else None
         logger.info(
-            "[Train] ----- Dataset: (total={}, length={}, noise={}) - (batch={}) - complete".format(
-                total, self.length, noise, batch
+            "[Train] ----- Dataset: (length={}, total={}, noise={}) - (batch={}) - complete".format(
+                self.length, total, noise, batch
             )
         )
 
