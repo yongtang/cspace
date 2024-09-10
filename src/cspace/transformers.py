@@ -467,7 +467,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
 
 
 class PerceptionDataset(torch.utils.data.Dataset):
-    def __init__(self, /, image, label, function, joint):
+    def __init__(self, /, image, label, spec, joint, function, bucketize):
         def f(entry):
             entries = list(
                 pathlib.Path(image).glob(
@@ -481,29 +481,40 @@ class PerceptionDataset(torch.utils.data.Dataset):
             )
             return next(iter(entries), None)
 
-        def f_entry(file, entry):
-            with open(entry) as f:
+        def f_label(file):
+            with open(file) as f:
                 entry = json.load(f)
                 entry = torch.tensor(
                     tuple(entry[name] for name in joint), dtype=torch.float64
                 )
-                return file, entry
+                return entry
 
         entries = list(filter(None, map(f, pathlib.Path(label).rglob("*.json"))))
-        entries = list(f_entry(file, entry) for file, entry in entries)
 
-        self.entries = entries
+        image, label = list(zip(*entries))  # unzip
+
+        position = torch.stack(list(f_label(file) for file in label))
+
+        state = cspace.torch.classes.JointStateCollection(spec, joint, position)
+
+        state, true = bucketize(state)
+
+        value = torch.stack(list(entry.data for entry in state), dim=-2)
+
         self.function = function
+        self.image = image
+        self.value = value
+        self.true = true
 
     def __len__(self):
-        return len(self.entries)
+        return len(self.image)
 
     def __getitem__(self, key):
-        image, label = self.entries[key]
-        image = self.function(image)
-        image = torch.squeeze(image, dim=0)
+        observation = torch.squeeze(self.function(self.image[key]), dim=0)
+        value = self.value[key]
+        true = self.true[key]
 
-        return image, label
+        return observation, value, true
 
 
 class PerceptionKinematics(
@@ -624,8 +635,10 @@ class PerceptionKinematics(
             dataset = cspace.transformers.PerceptionDataset(
                 image=image,
                 label=label,
-                function=self.image,
+                spec=self.spec,
                 joint=self.joint,
+                function=self.image,
+                bucketize=self.bucketize,
             )
             dataloader = torch.utils.data.DataLoader(
                 dataset,
@@ -647,11 +660,12 @@ class PerceptionKinematics(
             vision = accelerator.prepare(self.vision)
 
             loss_total, loss_count = 0, 0
-            for index, (observation, value) in enumerate(dataloader):
-                state, true = self.bucketize(
+            for index, (observation, value, true) in enumerate(dataloader):
+                state = list(
                     cspace.torch.classes.JointStateCollection(
-                        self.spec, self.joint, value
+                        self.spec, self.joint, torch.select(value, dim=-2, index=index)
                     )
+                    for index in range(self.length)
                 )
                 with torch.no_grad():
                     pose = vision(pixel_values=observation).last_hidden_state
