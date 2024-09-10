@@ -631,7 +631,7 @@ class PerceptionKinematics(
             )
         )
 
-        if image:
+        if image and label:
             dataset = cspace.transformers.PerceptionDataset(
                 image=image,
                 label=label,
@@ -665,7 +665,7 @@ class PerceptionKinematics(
                     cspace.torch.classes.JointStateCollection(
                         self.spec, self.joint, torch.select(value, dim=-2, index=index)
                     )
-                    for index in range(self.length)
+                    for index in range(value.shape[-2])
                 )
                 with torch.no_grad():
                     pose = vision(pixel_values=observation).last_hidden_state
