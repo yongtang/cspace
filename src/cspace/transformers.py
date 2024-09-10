@@ -3,6 +3,7 @@ import cspace.torch.classes
 import transformers
 import PIL.Image
 import functools
+import itertools
 import pathlib
 import torch
 import json
@@ -501,10 +502,66 @@ class PerceptionDataset(torch.utils.data.Dataset):
 
         value = torch.stack(list(entry.data for entry in state), dim=-2)
 
+        print("XXX - :", value.shape)
+
+
         self.function = function
         self.image = image
         self.value = value
         self.true = true
+
+        assert value.shape[0] == len(image)
+        assert true.shape[0] == len(image)
+
+
+        length = len(state)
+        image = list(itertools.chain.from_iterable(itertools.repeat(entry, length) for entry in image))
+        print("IMAGE: ", image)
+
+        print("VALUE: ", value.shape)
+        print("TRUE: ", true.shape)
+
+        true = torch.flatten(true.expand([length] + list(true.shape)), 0, 1)
+        print("TRUE2: ", true.shape, true)
+
+        print("VALUE ----- ", value.shape)
+        entries = list(
+                value[:, 0:step, :] for step in range(length)
+        )
+
+        assert False
+                
+        def f_data(entry, length):
+            return torch.concatenate(
+                (
+                    entry,
+                    torch.zeros(
+                        (entry.shape[0], length - entry.shape[1], entry.shape[2])
+                    ),
+                ),
+                dim=-2,
+            )
+        
+        def f_mask(entry, length):
+            return torch.concatenate(
+                (
+                    torch.ones((entry.shape[0], entry.shape[1])),
+                    torch.zeros((entry.shape[0], length - entry.shape[1])),
+                ),
+                dim=-1,
+            )
+    
+        def f_true(entry, length, index):
+            return torch.select(index, dim=-2, index=entry.shape[1] - 1)
+                    
+        self.data = torch.concatenate(
+            list(f_data(entry, length) for entry in entries), dim=0
+        )   
+        
+        self.mask = torch.concatenate(
+            list(f_mask(entry, length) for entry in entries), dim=0
+        ) 
+
 
     def __len__(self):
         return len(self.image)
