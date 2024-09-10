@@ -686,47 +686,34 @@ class PerceptionKinematics(
             )
         )
 
-    def encode(self, state, pixel):
-        def f_entry(self, entry):
-            value = tuple(
-                torch.unsqueeze(entry.position(self.spec, name), -1)
-                for name in entry.name
-            )
-            value = torch.concatenate(value, dim=-1)
+    def encode(self, state, pose):
+        data = torch.stack(tuple(entry.data for entry in state), dim=-2)
 
-            value = torch.reshape(value, entry.batch + (1, -1))
+        assert data.shape[:-2] == pose.shape[:-2]
 
-            return value
+        fill = data.shape[-1] + pose.shape[-1]
 
-        value = tuple(f_entry(self, entry) for entry in state)
-
-        value = torch.concatenate(value, dim=-2)
-
-        total = value.shape[-1] + pixel.shape[-1]
-
-        pixel = torch.concatenate(
+        data = torch.concatenate(
             (
+                data,
                 torch.zeros(
-                    (pixel.shape[:-1] + tuple([total - pixel.shape[-1]])),
-                    dtype=pixel.dtype,
-                    device=pixel.device,
-                ),
-                pixel,
-            ),
-            dim=-1,
-        )
-        value = torch.concatenate(
-            (
-                value,
-                torch.zeros(
-                    (value.shape[:-1] + tuple([total - value.shape[-1]])),
-                    dtype=value.dtype,
-                    device=value.device,
+                    (data.shape[:-1] + tuple([fill - data.shape[-1]])),
+                    dtype=data.dtype,
+                    device=data.device,
                 ),
             ),
             dim=-1,
         )
+        pose = torch.concatenate(
+            (
+                torch.zeros(
+                    (pose.shape[:-1] + tuple([fill - pose.shape[-1]])),
+                    dtype=pose.dtype,
+                    device=pose.device,
+                ),
+                pose,
+            ),
+            dim=-1,
+        )
 
-        value = torch.concatenate((pixel, value), dim=-2)
-
-        return value
+        return torch.concatenate((pose, data), dim=-2)
