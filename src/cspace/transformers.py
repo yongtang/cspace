@@ -481,9 +481,19 @@ class PerceptionDataset(torch.utils.data.Dataset):
             )
             return next(iter(entries), None)
 
-        self.entries = list(filter(None, map(f, pathlib.Path(label).rglob("*.json"))))
+        def f_entry(file, entry):
+            with open(entry) as f:
+                entry = json.load(f)
+                entry = torch.tensor(
+                    tuple(entry[name] for name in joint), dtype=torch.float64
+                )
+                return file, entry
+
+        entries = list(filter(None, map(f, pathlib.Path(label).rglob("*.json"))))
+        entries = list(f_entry(file, entry) for file, entry in entries)
+
+        self.entries = entries
         self.function = function
-        self.joint = joint
 
     def __len__(self):
         return len(self.entries)
@@ -492,12 +502,6 @@ class PerceptionDataset(torch.utils.data.Dataset):
         image, label = self.entries[key]
         image = self.function(image)
         image = torch.squeeze(image, dim=0)
-
-        with open(label) as f:
-            label = json.load(f)
-        label = torch.tensor(
-            tuple(label[name] for name in self.joint), dtype=torch.float64
-        )
 
         return image, label
 
