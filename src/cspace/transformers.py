@@ -38,7 +38,11 @@ class Model(torch.nn.Module):
         data = torch.concatenate(
             (
                 data,
-                torch.zeros((data.shape[0], length - data.shape[1], data.shape[2])),
+                torch.zeros(
+                    (data.shape[0], length - data.shape[1], data.shape[2]),
+                    dtype=data.dtype,
+                    device=data.device,
+                ),
             ),
             dim=-2,
         )
