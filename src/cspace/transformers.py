@@ -506,7 +506,7 @@ class PerceptionDataset(torch.utils.data.Dataset):
 
         state = cspace.torch.classes.JointStateCollection(spec, joint, position)
 
-        state, true = bucketize(state)
+        state, index = bucketize(state)
 
         value = torch.stack(list(entry.data for entry in state), dim=-2)
 
@@ -516,10 +516,10 @@ class PerceptionDataset(torch.utils.data.Dataset):
         self.function = function
         self.image = image
         self.value = value
-        self.true = true
+        self.index = index
 
         assert value.shape[0] == len(image)
-        assert true.shape[0] == len(image)
+        assert index.shape[0] == len(image)
 
 
         length = len(state)
@@ -527,17 +527,17 @@ class PerceptionDataset(torch.utils.data.Dataset):
         print("IMAGE: ", image)
 
         print("VALUE: ", value.shape)
-        print("TRUE: ", true.shape)
+        print("INDEX: ", index.shape)
 
-        true = torch.flatten(true.expand([length] + list(true.shape)), 0, 1)
-        print("TRUE2: ", true.shape, true)
+        index = torch.flatten(index.expand([length] + list(index.shape)), 0, 1)
+        print("INDEX2: ", index.shape, index)
 
         print("VALUE ----- ", value.shape)
         entries = list(
                 value[:, 0:step, :] for step in range(length)
         )
+        print("ENTRIES: ", list(e.shape for e in entries))
 
-        assert False
                 
         def f_data(entry, length):
             return torch.concatenate(
@@ -560,7 +560,7 @@ class PerceptionDataset(torch.utils.data.Dataset):
             )
     
         def f_true(entry, length, index):
-            return torch.select(index, dim=-2, index=entry.shape[1] - 1)
+            return torch.select(index, dim=-2, index=entry.shape[1])
                     
         self.data = torch.concatenate(
             list(f_data(entry, length) for entry in entries), dim=0
@@ -570,6 +570,11 @@ class PerceptionDataset(torch.utils.data.Dataset):
             list(f_mask(entry, length) for entry in entries), dim=0
         ) 
 
+        self.true = torch.concatenate(
+            list(f_true(entry, length, index) for entry in entries), dim=0
+        )
+
+        assert False
 
     def __len__(self):
         return len(self.image)
