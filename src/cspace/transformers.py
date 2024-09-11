@@ -158,7 +158,7 @@ class InverseDataset(torch.utils.data.Dataset):
 
         scale = torch.concatenate(
             (
-                torch.rand(total, 1, len(joint), dtype=torch.float64, device=device),
+                torch.zero((total, 1, len(joint)), dtype=torch.float64, device=device),
                 scale,
             ),
             dim=-2,
@@ -332,6 +332,14 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             transform = cspace.torch.classes.Transform(
                 xyz=torch.transpose(position, -1, -2),
                 rot=cspace.torch.ops.qua_to_rot(torch.transpose(orientation, -1, -2)),
+            )
+
+            state = cspace.torch.classes.JointStateCollection.apply(
+                self.spec,
+                self.joint,
+                torch.zeros_like(state.data),
+                min=0.0,
+                max=1.0,
             )
 
             processed = []
