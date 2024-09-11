@@ -158,7 +158,7 @@ class InverseDataset(torch.utils.data.Dataset):
 
         scale = torch.concatenate(
             (
-                torch.zero((total, 1, len(joint)), dtype=torch.float64, device=device),
+                torch.zeros((total, 1, len(joint)), dtype=torch.float64, device=device),
                 scale,
             ),
             dim=-2,
