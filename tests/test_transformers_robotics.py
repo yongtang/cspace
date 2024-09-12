@@ -132,7 +132,7 @@ def test_kinematics_inverse(
         kinematics.spec,
         kinematics.joint,
         torch.zeros([len(kinematics.joint)], device=device),
-        min=-1.0,
+        min=0.0,
         max=1.0,
     )
     mark = kinematics.forward(zero)
