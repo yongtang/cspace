@@ -57,11 +57,11 @@ class Model(torch.nn.Module):
 
 
 class JointStateEncoding:
-    def decode(self, state, pred):
+    def decode(self, state, pred, choice):
         pred = torch.unflatten(pred, -1, (self.bucket, -1))
         assert pred.shape[-2:] == (self.bucket, len(self.joint))
 
-        index = torch.argmax(pred, dim=-2)
+        index = choice(pred)
 
         prod = torch.cumprod(
             torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand([len(state)]),
@@ -211,15 +211,77 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
 
             self.model = Model(transformer, input_embeddings, output_embeddings)
 
-    def inverse(self, pose, state):
+    def inverse(self, pose, state, repeat=None):
         def f_encode(pose, zero, processed):
             return [zero] + processed, pose
 
-        def f_decode(pred, zero, processed):
-            return [zero] + processed, pred
+        def f_decode(pred, zero, processed, choice):
+            return [zero] + processed, pred, choice
+
+        def f_selection(final, transform):
+            position, orientation = self.forward(final).data
+
+            measure = (
+                transform.inverse()
+                * cspace.torch.classes.Transform(
+                    xyz=torch.transpose(position, -1, -2),
+                    rot=cspace.torch.ops.qua_to_rot(
+                        torch.transpose(orientation, -1, -2)
+                    ),
+                )
+            ).log
+
+            loss = torch.sqrt(
+                torch.sum(torch.square(torch.flatten(measure, -2, -1)), dim=-1)
+            )
+
+            selection = torch.min(loss, dim=0)
+            selection = torch.reshape(selection.indices, [-1])
+
+            position = torch.select(final.data, dim=0, index=selection)
+
+            return cspace.torch.classes.JointStateCollection(
+                self.spec, final.name, position
+            )
+
+        def f_choice(pred):
+            pred = torch.transpose(pred, -1, -2)
+
+            categorical = torch.distributions.categorical.Categorical(logits=pred)
+
+            return categorical.sample()
+
+        choice = f_choice if repeat else functools.partial(torch.argmax, dim=-2)
 
         self.model.eval()
         with torch.no_grad():
+            if repeat:
+                position, orientation = pose.data
+                position = position.unsqueeze(0).expand(
+                    *(tuple([repeat]) + pose.batch + (3, len(pose.name)))
+                )
+                orientation = orientation.unsqueeze(0).expand(
+                    *(tuple([repeat]) + pose.batch + (4, len(pose.name)))
+                )
+                pose = cspace.torch.classes.LinkPoseCollection(
+                    pose.base, pose.name, position, orientation
+                )
+
+                position = state.data
+                position = position.unsqueeze(0).expand(
+                    *(tuple([repeat]) + state.batch + tuple([len(state.name)]))
+                )
+                state = cspace.torch.classes.JointStateCollection(
+                    self.spec, state.name, position
+                )
+
+                position, orientation = pose.data
+                transform = cspace.torch.classes.Transform(
+                    xyz=torch.transpose(position, -1, -2),
+                    rot=cspace.torch.ops.qua_to_rot(
+                        torch.transpose(orientation, -1, -2)
+                    ),
+                )
 
             zero = cspace.torch.classes.JointStateCollection.apply(
                 self.spec,
@@ -235,9 +297,9 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
 
                 pred = self.model(data)
 
-                processed.append(self.decode(*f_decode(pred, zero, processed)))
+                processed.append(self.decode(*f_decode(pred, zero, processed, choice)))
 
-            return processed[-1]
+            return f_selection(processed[-1], transform) if repeat else processed[-1]
 
     def train(
         self,
@@ -449,8 +511,10 @@ class PerceptionKinematics(
         def f_encode(pose, zero, processed):
             return [zero] + processed, pose
 
-        def f_decode(pred, zero, processed):
-            return [zero] + processed, pred
+        def f_decode(pred, zero, processed, choice):
+            return [zero] + processed, pred, choice
+
+        choice = functools.partial(torch.argmax, dim=-2)
 
         self.model.eval()
         with torch.no_grad():
@@ -479,7 +543,7 @@ class PerceptionKinematics(
 
                 pred = self.model(data)
 
-                processed.append(self.decode(*f_decode(pred, zero, processed)))
+                processed.append(self.decode(*f_decode(pred, zero, processed, choice)))
 
             return processed[-1]
 

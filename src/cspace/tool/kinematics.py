@@ -48,6 +48,7 @@ def main():
             parser.add_argument(
                 "--start", dest="start", type=str, nargs="+", default=[]
             )
+            parser.add_argument("--repeat", dest="repeat", type=int, default=None)
             parser.add_argument("--device", dest="device", type=str, default="cpu")
         else:
             parser.add_argument("--load", dest="load", type=str, required=True)
@@ -156,7 +157,7 @@ def main():
                     start = zero
                     node = mark
 
-                inverse = kinematics.inverse(pose, start)
+                inverse = kinematics.inverse(pose, start, repeat=args.repeat)
                 pred = kinematics.forward(inverse)
 
                 logger.info(
