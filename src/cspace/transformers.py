@@ -121,7 +121,7 @@ class JointStateEncoding:
 
 
 class InverseDataset(torch.utils.data.Dataset):
-    def __init__(self, /, spec, joint, link, base, bucket, length, total, noise=None):
+    def __init__(self, /, spec, joint, link, base, bucket, length, encode, total, noise=None):
         total = total if noise is None else (noise * total)
 
         index = torch.randint(
@@ -151,7 +151,7 @@ class InverseDataset(torch.utils.data.Dataset):
 
         scale = torch.cumsum(scale, dim=-2)
 
-        scale = scale % 2.0  # (0.0, 1.0)
+        scale = scale % 1.0  # (0.0, 1.0)
 
         state = tuple(
             cspace.torch.classes.JointStateCollection.apply(
@@ -176,15 +176,49 @@ class InverseDataset(torch.utils.data.Dataset):
             encode(state[0 : step + 1], pose, noise) for step in range(length)
         )
 
-        self.scale = scale
-        self.index = index
-        self.noise = noise
+
+
+        def f_data(entry, length):
+            return torch.concatenate(
+                (
+                    entry,
+                    torch.zeros(
+                        (entry.shape[0], length - entry.shape[1], entry.shape[2])
+                    ),
+                ),
+                dim=-2,
+            )
+
+        def f_mask(entry, length):
+            return torch.concatenate(
+                (
+                    torch.ones((entry.shape[0], entry.shape[1])),
+                    torch.zeros((entry.shape[0], length - entry.shape[1])),
+                ),
+                dim=-1,
+            )
+
+        def f_true(entry, length, index):
+            return torch.select(index, dim=-2, index=entry.shape[1] - 1)
+
+        self.data = torch.concatenate(
+            list(f_data(entry, length) for entry in entries), dim=0
+        )
+
+        self.mask = torch.concatenate(
+            list(f_mask(entry, length) for entry in entries), dim=0
+        )
+
+        self.true = torch.concatenate(
+            list(f_true(entry, length, index) for entry in entries), dim=0
+        )
+        print("XXX - ", self.data.shape, self.mask.shape, self.true.shape, self.mask)
 
     def __len__(self):
-        return self.scale.shape[0]
+        return self.data.shape[0]
 
     def __getitem__(self, key):
-        return (self.scale[key], self.index[key], self.noise[key])
+        return (self.data[key], self.mask[key], self.true[key])
 
 
 class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncoding):
@@ -343,6 +377,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                     base=self.base,
                     bucket=self.bucket,
                     length=self.length,
+                    encode=self.encode,
                     total=total,
                     noise=noise,
                 )
