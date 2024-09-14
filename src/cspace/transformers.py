@@ -121,7 +121,7 @@ class JointStateEncoding:
 
 
 class InverseDataset(torch.utils.data.Dataset):
-    def __init__(self, joint, link, bucket, length, total, noise=None):
+    def __init__(self, /, spec, joint, link, base, bucket, length, total, noise=None):
         total = total if noise is None else (noise * total)
 
         index = torch.randint(
@@ -155,14 +155,15 @@ class InverseDataset(torch.utils.data.Dataset):
 
         state = tuple(
             cspace.torch.classes.JointStateCollection.apply(
-                self.spec,
-                self.joint,
+                spec,
+                joint,
                 torch.select(scale, dim=-2, index=step),
                 min=0.0,
                 max=1.0,
             )
             for step in range(length)
         )
+
         pose = cspace.torch.classes.JointStateCollection.apply(
             spec,
             joint,
@@ -171,14 +172,8 @@ class InverseDataset(torch.utils.data.Dataset):
             max=1.0,
         ).forward(spec, *link, base=base)
 
-        pose = self.forward(
-            cspace.torch.classes.JointStateCollection.apply(
-                self.spec,
-                self.joint,
-                torch.select(scale, dim=-2, index=length),
-                min=0.0,
-                max=1.0,
-            )
+        entries = list(
+            encode(state[0 : step + 1], pose, noise) for step in range(length)
         )
 
         self.scale = scale
@@ -342,11 +337,13 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             if total > 0:
 
                 dataset = cspace.transformers.InverseDataset(
-                    self.joint,
-                    self.link,
-                    self.bucket,
-                    self.length,
-                    total,
+                    spec=self.spec,
+                    joint=self.joint,
+                    link=self.link,
+                    base=self.base,
+                    bucket=self.bucket,
+                    length=self.length,
+                    total=total,
                     noise=noise,
                 )
                 dataloader = torch.utils.data.DataLoader(
