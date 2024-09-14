@@ -181,7 +181,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
 
             self.model = Model(transformer, input_embeddings, output_embeddings)
             self.epoch = 0
-            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-5)
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-4)
             self.scheduler = torch.optim.lr_scheduler.ChainedScheduler(
                 [
                     torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.9),
@@ -479,7 +479,7 @@ class PerceptionKinematics(
             )
             self.model = Model(transformer, input_embeddings, output_embeddings)
             self.epoch = 0
-            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-5)
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-4)
             self.scheduler = torch.optim.lr_scheduler.ChainedScheduler(
                 [
                     torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.9),
