@@ -210,6 +210,16 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             )
 
             self.model = Model(transformer, input_embeddings, output_embeddings)
+            self.epoch = 0
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-5)
+            self.scheduler = torch.optim.lr_scheduler.ChainedScheduler(
+                [
+                    torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.9),
+                    torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                        self.optimizer, T_0=5, T_mult=2
+                    ),
+                ]
+            )
 
     def inverse(self, pose, state, repeat=None):
         def f_encode(pose, zero, processed):
@@ -315,18 +325,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
         batch = batch if batch is not None else 128
         epoch = epoch if epoch is not None else 1
 
-        start = 0
-        optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-5)
-        scheduler = torch.optim.lr_scheduler.ChainedScheduler(
-            [
-                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9),
-                torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-                    optimizer, T_0=5, T_mult=2
-                ),
-            ]
-        )
-
-        for e in range(start, epoch):
+        for e in range(self.epoch, epoch):
             logger.info(
                 "[Train] ----- Dataset: (batch={}, total={}, noise={}) - (epoch={}/{}) - creation".format(
                     batch, total, noise, e, epoch
@@ -349,7 +348,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 )
 
                 dataloader, model, optimizer, scheduler = accelerator.prepare(
-                    dataloader, self.model, optimizer, scheduler
+                    dataloader, self.model, self.optimizer, self.scheduler
                 )
                 model.train()
 
@@ -401,6 +400,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                             loss_total / loss_count,
                         )
                     )
+            self.epoch = e + 1
             accelerator.save(self, save) if save else None
             logger.info(
                 "[Train] ----- Dataset: (batch={}, total={}, batch={}) - (epoch={}/{}) - complete".format(
@@ -508,6 +508,16 @@ class PerceptionKinematics(
                 bias=False,
             )
             self.model = Model(transformer, input_embeddings, output_embeddings)
+            self.epoch = 0
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-5)
+            self.scheduler = torch.optim.lr_scheduler.ChainedScheduler(
+                [
+                    torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.9),
+                    torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                        self.optimizer, T_0=5, T_mult=2
+                    ),
+                ]
+            )
 
     def perception(self, observation):
 
@@ -575,18 +585,7 @@ class PerceptionKinematics(
         batch = batch if batch is not None else 128
         epoch = epoch if epoch is not None else 1
 
-        start = 0
-        optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-5)
-        scheduler = torch.optim.lr_scheduler.ChainedScheduler(
-            [
-                torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9),
-                torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-                    optimizer, T_0=5, T_mult=2
-                ),
-            ]
-        )
-
-        for e in range(start, epoch):
+        for e in range(self.epoch, epoch):
             logger.info(
                 "[Train] ----- Dataset: (batch={}, image={}, label={}) - (epoch={}/{}) - creation".format(
                     batch, image, label, e, epoch
@@ -606,7 +605,7 @@ class PerceptionKinematics(
                 )
 
                 dataloader, model, optimizer, scheduler = accelerator.prepare(
-                    dataloader, self.model, optimizer, scheduler
+                    dataloader, self.model, self.optimizer, self.scheduler
                 )
                 model.train()
 
@@ -655,6 +654,7 @@ class PerceptionKinematics(
                             loss_total / loss_count,
                         )
                     )
+            self.epoch = e + 1
             accelerator.save(self, save) if save else None
             logger.info(
                 "[Train] ----- Dataset: (batch={}, image={}, label={}) - (epoch={}/{}) - complete".format(
