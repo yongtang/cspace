@@ -56,7 +56,7 @@ def test_kinematics_forward(
 
 
 @pytest.mark.parametrize(
-    "model,bucket,length,noise,total,batch,repeat",
+    "model,bucket,length,noise,total,batch,epoch",
     [
         pytest.param(
             "gpt2",
@@ -83,7 +83,7 @@ def test_kinematics_inverse(
     noise,
     total,
     batch,
-    repeat,
+    epoch,
     request,
     tmp_path_factory,
 ):
@@ -103,15 +103,15 @@ def test_kinematics_inverse(
         length=length,
     )
 
-    for _ in range(repeat):
-        kinematics.train(
-            logger=logger,
-            accelerator=accelerator,
-            save=saved,
-            batch=batch,
-            total=total,
-            noise=noise,
-        )
+    kinematics.train(
+        logger=logger,
+        accelerator=accelerator,
+        total=total,
+        save=saved,
+        batch=batch,
+        epoch=epoch,
+        noise=noise,
+    )
 
     kinematics = torch.load(saved, map_location=torch.device(device))
 
@@ -223,7 +223,7 @@ def test_kinematics_inverse(
 
 
 @pytest.mark.parametrize(
-    "model,vision,bucket,length,batch,repeat",
+    "model,vision,bucket,length,batch,epoch",
     [
         pytest.param("gpt2", "google/vit-base-patch16-224", 2, 10, 2, 5),
     ],
@@ -239,7 +239,7 @@ def test_kinematics_perception(
     bucket,
     length,
     batch,
-    repeat,
+    epoch,
     request,
     tmp_path_factory,
 ):
@@ -277,15 +277,15 @@ def test_kinematics_perception(
             dict(zip(joint_state_tutorial.name, joint_state_tutorial.position)), f
         )
 
-    for _ in range(repeat):
-        kinematics.train(
-            logger=logger,
-            accelerator=accelerator,
-            image=image,
-            label=label,
-            save=saved,
-            batch=batch,
-        )
+    kinematics.train(
+        logger=logger,
+        accelerator=accelerator,
+        image=image,
+        label=label,
+        save=saved,
+        batch=batch,
+        epoch=epoch,
+    )
 
     kinematics = torch.load(saved, map_location=torch.device(device))
 
