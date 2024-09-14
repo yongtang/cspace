@@ -64,7 +64,7 @@ def main():
             parser.add_argument("--noise", dest="noise", type=int, default=None)
 
             parser.add_argument("--batch", dest="batch", type=int, default=None)
-            parser.add_argument("--lr", dest="lr", type=float, default=None)
+            parser.add_argument("--epoch", dest="epoch", type=int, default=None)
             load = parser.parse_known_args()[0].load
 
             if not load:
@@ -82,7 +82,7 @@ def main():
             parser.add_argument("--label", dest="label", type=str, default=None)
 
             parser.add_argument("--batch", dest="batch", type=int, default=None)
-            parser.add_argument("--lr", dest="lr", type=float, default=None)
+            parser.add_argument("--epoch", dest="epoch", type=int, default=None)
             load = parser.parse_known_args()[0].load
 
             if not load:
@@ -361,10 +361,10 @@ def main():
             kinematics.train(
                 logger=logger,
                 accelerator=accelerator,
+                total=args.total,
                 save=args.save,
                 batch=args.batch,
-                total=args.total,
-                lr=args.lr,
+                epoch=args.epoch,
             )
         else:
             kinematics = (
@@ -385,7 +385,7 @@ def main():
                 label=args.label,
                 save=args.save,
                 batch=args.batch,
-                lr=args.lr,
+                epoch=args.epoch,
             )
 
 
