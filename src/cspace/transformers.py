@@ -2,10 +2,12 @@ import cspace.cspace.classes
 import cspace.torch.classes
 import transformers
 import PIL.Image
+import itertools
 import functools
 import pathlib
 import torch
 import json
+import abc
 import io
 
 
@@ -23,23 +25,16 @@ class Model(torch.nn.Module):
         self.input_embeddings = input_embeddings
         self.output_embeddings = output_embeddings
 
-    def forward(self, data):
-        batch = list(data.shape[:-2])
-
+    def forward(self, data, mask):
+        batch = data.shape[:-2]
+        assert data.shape[:-1] == mask.shape
         data = torch.reshape(data, [-1] + list(data.shape[-2:]))
+        mask = torch.reshape(mask, [-1] + list(mask.shape[-1:]))
 
-        data = list(
-            map(
-                lambda e: e.to(self.input_embeddings.weight.dtype).to(
-                    self.input_embeddings.weight.device
-                ),
-                data,
-            )
-        )
-        mask = list(map(lambda e: torch.ones(len(e), device=e.device), data))
+        data = data.to(self.input_embeddings.weight.dtype)
+        data = data.to(self.input_embeddings.weight.device)
+        mask = mask.to(self.input_embeddings.weight.device)
 
-        data = torch.nn.utils.rnn.pad_sequence(data, batch_first=True)
-        mask = torch.nn.utils.rnn.pad_sequence(mask, batch_first=True)
         data = self.transformer(
             inputs_embeds=self.input_embeddings(data),
             attention_mask=mask,
@@ -51,8 +46,7 @@ class Model(torch.nn.Module):
 
         data = self.output_embeddings(data)
 
-        data = torch.reshape(data, batch + list(data.shape[-1:]))
-
+        data = torch.reshape(data, batch + data.shape[-1:])
         return data
 
 
@@ -77,16 +71,16 @@ class JointStateEncoding:
     def bucketize(self, state):
         value = state.scale(spec=self.spec, min=0.0, max=1.0)
 
-        true = []
+        index = []
         scale = [torch.zeros_like(value)]
         for step in range(self.length):
             entry = value // self.prod[step]
             value = value % self.prod[step]
-            true.append(entry)
+            index.append(entry)
             scale.append(entry * self.prod[step])
         scale = scale[:-1]
 
-        true = torch.stack(true, dim=-2)
+        index = torch.stack(index, dim=-2)
         scale = torch.stack(scale, dim=-2)
 
         state = tuple(
@@ -99,8 +93,8 @@ class JointStateEncoding:
             )
             for step in range(self.length)
         )
-        true = true.to(torch.int64)
-        return state, true
+        index = index.to(torch.int64)
+        return state, index
 
     @functools.cached_property
     def prod(self):
@@ -110,8 +104,58 @@ class JointStateEncoding:
         )
 
 
-class InverseDataset(torch.utils.data.Dataset):
-    def __init__(self, joint, link, bucket, length, total, noise=None):
+class MaskDataset(torch.utils.data.Dataset, abc.ABC):
+    def __init__(self, /, length, entries, index):
+        def f_data(entry, length):
+            return torch.concatenate(
+                (
+                    entry,
+                    torch.zeros(
+                        (entry.shape[0], length - entry.shape[1], entry.shape[2])
+                    ),
+                ),
+                dim=-2,
+            )
+
+        def f_mask(entry, length):
+            return torch.concatenate(
+                (
+                    torch.ones((entry.shape[0], entry.shape[1])),
+                    torch.zeros((entry.shape[0], length - entry.shape[1])),
+                ),
+                dim=-1,
+            )
+
+        def f_true(entry, length, index):
+            return torch.select(index, dim=-2, index=entry.shape[1] - 1)
+
+        self.data = torch.concatenate(
+            list(f_data(entry, length) for entry in entries), dim=0
+        )
+
+        self.mask = torch.concatenate(
+            list(f_mask(entry, length) for entry in entries), dim=0
+        )
+
+        self.true = torch.concatenate(
+            list(f_true(entry, length, index) for entry in entries), dim=0
+        )
+
+    def __len__(self):
+        return self.data.shape[0]
+
+    def __getitem__(self, key):
+        return (self.head(key), self.data[key], self.mask[key], self.true[key])
+
+    @abc.abstractmethod
+    def head(self, key):
+        raise NotImplementedError
+
+
+class InverseDataset(MaskDataset):
+    def __init__(
+        self, /, spec, joint, link, base, bucket, length, e_data, total, noise=None
+    ):
         total = total if noise is None else (noise * total)
 
         index = torch.randint(
@@ -143,15 +187,50 @@ class InverseDataset(torch.utils.data.Dataset):
 
         scale = scale % 1.0  # (0.0, 1.0)
 
-        self.scale = scale
-        self.index = index
-        self.noise = noise
+        start = torch.rand(total, len(joint), dtype=scale.dtype, device=scale.device)
 
-    def __len__(self):
-        return self.scale.shape[0]
+        state = tuple(
+            cspace.torch.classes.JointStateCollection.apply(
+                spec,
+                joint,
+                torch.select(scale, dim=-2, index=step),
+                min=0.0,
+                max=1.0,
+            )
+            for step in range(length)
+        )
 
-    def __getitem__(self, key):
-        return (self.scale[key], self.index[key], self.noise[key])
+        pose = cspace.torch.classes.JointStateCollection.apply(
+            spec,
+            joint,
+            torch.select(scale, dim=-2, index=length),
+            min=0.0,
+            max=1.0,
+        ).forward(spec, *link, base=base)
+
+        entries = list(
+            e_data(state[0 : step + 1], pose, noise) for step in range(length)
+        )
+        super().__init__(length=length, entries=entries, index=index)
+
+        start = e_data(
+            [
+                cspace.torch.classes.JointStateCollection.apply(
+                    spec,
+                    joint,
+                    start,
+                    min=0.0,
+                    max=1.0,
+                )
+            ],
+            pose,
+            None,
+        )
+
+        self.start = torch.concatenate(list(start for step in range(length)), dim=0)
+
+    def head(self, key):
+        return self.start[key]
 
 
 class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncoding):
@@ -193,7 +272,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
 
     def inverse(self, pose, state, repeat=None):
         def f_encode(pose, zero, processed):
-            return [zero] + processed, pose
+            return [zero] + processed, pose, zero  # start
 
         def f_decode(pred, zero, processed, choice):
             return [zero] + processed, pred, choice
@@ -273,9 +352,9 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
 
             processed = []
             for step in range(self.length):
-                data = self.encode(*f_encode(pose, zero, processed))
+                data, mask = self.encode(*f_encode(pose, zero, processed))
 
-                pred = self.model(data)
+                pred = self.model(data, mask)
 
                 processed.append(self.decode(*f_decode(pred, zero, processed, choice)))
 
@@ -295,81 +374,72 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
         batch = batch if batch is not None else 128
         epoch = epoch if epoch is not None else 1
 
+        logger.info(
+            "[Train] ----- Dataset: (batch={}, total={}, noise={}) - (epoch={}) - creation".format(
+                batch, total, noise, epoch
+            )
+        )
+
+        accelerator.save(self, save) if save else None
+
         for e in range(self.epoch, epoch):
             logger.info(
                 "[Train] ----- Dataset: (batch={}, total={}, noise={}) - (epoch={}/{}) - creation".format(
                     batch, total, noise, e, epoch
                 )
             )
-            if total > 0:
+            dataset = cspace.transformers.InverseDataset(
+                spec=self.spec,
+                joint=self.joint,
+                link=self.link,
+                base=self.base,
+                bucket=self.bucket,
+                length=self.length,
+                e_data=self.e_data,
+                total=total,
+                noise=noise,
+            )
 
-                dataset = cspace.transformers.InverseDataset(
-                    self.joint,
-                    self.link,
-                    self.bucket,
-                    self.length,
-                    total,
-                    noise=noise,
-                )
-                dataloader = torch.utils.data.DataLoader(
-                    dataset,
-                    batch_size=batch,
-                    shuffle=True,
-                )
+            assert len(dataset) == self.length * total * (noise if noise else 1)
+            dataloader = torch.utils.data.DataLoader(
+                dataset,
+                batch_size=batch,
+                shuffle=True,
+            )
 
-                dataloader, model, optimizer, scheduler = accelerator.prepare(
-                    dataloader, self.model, self.optimizer, self.scheduler
-                )
-                model.train()
+            dataloader, model, optimizer, scheduler = accelerator.prepare(
+                dataloader, self.model, self.optimizer, self.scheduler
+            )
+            model.train()
 
-                loss_count, loss_total = 0, 0
-                for index, (scale, true, delta) in enumerate(dataloader):
-                    state = tuple(
-                        cspace.torch.classes.JointStateCollection.apply(
-                            self.spec,
-                            self.joint,
-                            torch.select(scale, dim=-2, index=step),
-                            min=0.0,
-                            max=1.0,
-                        )
-                        for step in range(self.length)
+            loss_count, loss_total = 0, 0
+            for index, (head, data, mask, true) in enumerate(dataloader):
+                data, mask = self.e_compose(head, data, mask)
+                pred = model(data, mask)
+                loss = self.loss_fn(
+                    torch.unflatten(pred, -1, (self.bucket, -1)),
+                    true,
+                )
+                accelerator.backward(loss)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+                loss = accelerator.gather_for_metrics(loss)
+                pred = accelerator.gather_for_metrics(pred)
+                loss_total += loss.sum().item()
+                loss_count += len(pred)
+                logger.info(
+                    "[Train] ----- Dataset: (batch={}, total={}, noise={}) - (epoch={}/{}) - {}/{} - Loss: {}".format(
+                        batch,
+                        total,
+                        noise,
+                        e,
+                        epoch,
+                        loss_count,
+                        total * (noise if noise else 1) * self.length,
+                        loss_total / loss_count,
                     )
-                    pose = self.forward(
-                        cspace.torch.classes.JointStateCollection.apply(
-                            self.spec,
-                            self.joint,
-                            torch.select(scale, dim=-2, index=self.length),
-                            min=0.0,
-                            max=1.0,
-                        )
-                    )
-                    for step in range(self.length):
-                        data = self.encode(state[0 : step + 1], pose, delta)
-                        pred = model(data)
-                        loss = self.loss_fn(
-                            torch.unflatten(pred, -1, (self.bucket, -1)),
-                            torch.select(true, dim=-2, index=step),
-                        )
-                        accelerator.backward(loss)
-                        optimizer.step()
-                        scheduler.step()
-                        optimizer.zero_grad()
-                        loss = accelerator.gather_for_metrics(loss)
-                        pred = accelerator.gather_for_metrics(pred)
-                        loss_total += loss.sum().item()
-                        loss_count += len(pred)
-                    logger.info(
-                        "[Train] ----- Dataset: (batch={}, total={}, noise={}) - (epoch={}/{}) - {}/{} - Loss: {}".format(
-                            batch,
-                            total,
-                            noise,
-                            e,
-                            epoch,
-                            loss_count // self.length,
-                            total * (noise if noise else 1),
-                            loss_total / loss_count,
-                        )
-                    )
+                )
             self.epoch = e + 1
             accelerator.save(self, save) if save else None
             logger.info(
@@ -378,7 +448,36 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 )
             )
 
-    def encode(self, state, pose, noise=None):
+        logger.info(
+            "[Train] ----- Dataset: (batch={}, total={}, noise={}) - (epoch={}) - complete".format(
+                batch, total, noise, epoch
+            )
+        )
+
+    def encode(self, state, pose, start):
+        data = self.e_data(state, pose, noise=None)
+        mask = torch.ones(data.shape[:-1])
+        head = self.e_data([start], pose, noise=None)
+
+        return self.e_compose(head, data, mask)
+
+    def e_compose(self, head, data, mask):
+        # mask = torch.concatenate(
+        #    (
+        #        torch.ones(
+        #            mask.shape[:-1] + tuple([head.shape[-2]]),
+        #            dtype=mask.dtype,
+        #            device=mask.device,
+        #        ),
+        #        mask,
+        #    ),
+        #    dim=-1,
+        # )
+        # data = torch.concatenate((head, data), dim=-2)
+
+        return data, mask
+
+    def e_data(self, state, pose, noise):
         def f_value(self, entry, pose, noise):
             def f_pose(mark, pose, noise, index, name):
                 entry = mark.transform(name).inverse() * pose.transform(name)
@@ -410,8 +509,10 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
         return torch.concatenate(value, dim=-2)
 
 
-class PerceptionDataset(torch.utils.data.Dataset):
-    def __init__(self, /, image, label, function, joint):
+class PerceptionDataset(MaskDataset):
+    def __init__(
+        self, /, spec, joint, length, bucketize, function, e_data, image, label
+    ):
         def f(entry):
             entries = list(
                 pathlib.Path(image).glob(
@@ -425,25 +526,35 @@ class PerceptionDataset(torch.utils.data.Dataset):
             )
             return next(iter(entries), None)
 
-        self.entries = list(filter(None, map(f, pathlib.Path(label).rglob("*.json"))))
-        self.function = function
-        self.joint = joint
+        def f_value(entry):
+            with open(entry) as f:
+                entry = json.load(f)
+            entry = torch.tensor(
+                tuple(entry[name] for name in joint), dtype=torch.float64
+            )
+            return entry
 
-    def __len__(self):
-        return len(self.entries)
+        entries = list(f(entry) for entry in pathlib.Path(label).rglob("*.json"))
+        entries = list(entry for entry in entries if entry)
+        image, label = list(zip(*entries))
 
-    def __getitem__(self, key):
-        image, label = self.entries[key]
-        image = self.function(image)
-        image = torch.squeeze(image, dim=0)
+        value = torch.stack(list(f_value(entry) for entry in label), dim=0)
 
-        with open(label) as f:
-            label = json.load(f)
-        label = torch.tensor(
-            tuple(label[name] for name in self.joint), dtype=torch.float64
+        state, index = bucketize(
+            cspace.torch.classes.JointStateCollection(spec, joint, value)
         )
 
-        return image, label
+        entries = list(e_data(state[0 : step + 1]) for step in range(length))
+        super().__init__(length=length, entries=entries, index=index)
+
+        self.image = list(
+            itertools.chain.from_iterable(list(image for step in range(length)))
+        )
+
+        self.function = function
+
+    def head(self, key):
+        return torch.squeeze(self.function(self.image[key]), dim=0)
 
 
 class PerceptionKinematics(
@@ -490,9 +601,8 @@ class PerceptionKinematics(
             )
 
     def perception(self, observation):
-
         def f_encode(pose, zero, processed):
-            return [zero] + processed, pose
+            return [zero] + processed, pose, zero  # start
 
         def f_decode(pred, zero, processed, choice):
             return [zero] + processed, pred, choice
@@ -522,9 +632,9 @@ class PerceptionKinematics(
 
             processed = []
             for step in range(self.length):
-                data = self.encode(*f_encode(pose, zero, processed))
+                data, mask = self.encode(*f_encode(pose, zero, processed))
 
-                pred = self.model(data)
+                pred = self.model(data, mask)
 
                 processed.append(self.decode(*f_decode(pred, zero, processed, choice)))
 
@@ -555,75 +665,80 @@ class PerceptionKinematics(
         batch = batch if batch is not None else 128
         epoch = epoch if epoch is not None else 1
 
+        logger.info(
+            "[Train] ----- Dataset: (batch={}, image={}, label={}) - (epoch={}) - creation".format(
+                batch, image, label, epoch
+            )
+        )
+
+        accelerator.save(self, save) if save else None
+
         for e in range(self.epoch, epoch):
             logger.info(
                 "[Train] ----- Dataset: (batch={}, image={}, label={}) - (epoch={}/{}) - creation".format(
                     batch, image, label, e, epoch
                 )
             )
-            if image:
-                dataset = cspace.transformers.PerceptionDataset(
-                    image=image,
-                    label=label,
-                    function=self.image,
-                    joint=self.joint,
+            dataset = cspace.transformers.PerceptionDataset(
+                spec=self.spec,
+                joint=self.joint,
+                length=self.length,
+                bucketize=self.bucketize,
+                function=self.image,
+                e_data=self.e_data,
+                image=image,
+                label=label,
+            )
+            dataloader = torch.utils.data.DataLoader(
+                dataset,
+                batch_size=batch,
+                shuffle=True,
+            )
+
+            dataloader, model, optimizer, scheduler = accelerator.prepare(
+                dataloader, self.model, self.optimizer, self.scheduler
+            )
+            model.train()
+
+            logger.info(
+                "[Train] ----- Dataset: (batch={}, image={}, label={}) - (epoch={}/{}) - total={}".format(
+                    batch, image, label, e, epoch, len(dataset)
                 )
-                dataloader = torch.utils.data.DataLoader(
-                    dataset,
-                    batch_size=batch,
-                    shuffle=True,
+            )
+
+            vision = accelerator.prepare(self.vision)
+
+            loss_total, loss_count = 0, 0
+            for index, (head, data, mask, true) in enumerate(dataloader):
+                with torch.no_grad():
+                    head = vision(pixel_values=head).last_hidden_state
+                data, mask = self.e_compose(head, data, mask)
+                pred = model(data, mask)
+                loss = self.loss_fn(
+                    torch.unflatten(pred, -1, (self.bucket, -1)),
+                    true,
                 )
 
-                dataloader, model, optimizer, scheduler = accelerator.prepare(
-                    dataloader, self.model, self.optimizer, self.scheduler
-                )
-                model.train()
-
+                accelerator.backward(loss)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+                loss = accelerator.gather_for_metrics(loss)
+                pred = accelerator.gather_for_metrics(pred)
+                loss_total += loss.sum().item()
+                loss_count += len(pred)
                 logger.info(
-                    "[Train] ----- Dataset: (batch={}, image={}, label={}) - (epoch={}/{}) - total={}".format(
-                        batch, image, label, e, epoch, len(dataset)
+                    "[Train] ----- Dataset: (batch={}, imagel={}, label={}) - (epoch={}/{}) - {}/{} - Loss: {}".format(
+                        batch,
+                        image,
+                        label,
+                        e,
+                        epoch,
+                        loss_count,
+                        len(dataset) * self.length,
+                        loss_total / loss_count,
                     )
                 )
-
-                vision = accelerator.prepare(self.vision)
-
-                loss_total, loss_count = 0, 0
-                for index, (observation, value) in enumerate(dataloader):
-                    state, true = self.bucketize(
-                        cspace.torch.classes.JointStateCollection(
-                            self.spec, self.joint, value
-                        )
-                    )
-                    with torch.no_grad():
-                        pose = vision(pixel_values=observation).last_hidden_state
-
-                    for step in range(self.length):
-                        data = self.encode(state[0 : step + 1], pose)
-                        pred = model(data)
-                        loss = self.loss_fn(
-                            torch.unflatten(pred, -1, (self.bucket, -1)),
-                            torch.select(true, dim=-2, index=step),
-                        )
-                        accelerator.backward(loss)
-                        optimizer.step()
-                        scheduler.step()
-                        optimizer.zero_grad()
-                        loss = accelerator.gather_for_metrics(loss)
-                        pred = accelerator.gather_for_metrics(pred)
-                        loss_total += loss.sum().item()
-                        loss_count += len(pred)
-                    logger.info(
-                        "[Train] ----- Dataset: (batch={}, imagel={}, label={}) - (epoch={}/{}) - {}/{} - Loss: {}".format(
-                            batch,
-                            image,
-                            label,
-                            e,
-                            epoch,
-                            loss_count // self.length,
-                            len(dataset),
-                            loss_total / loss_count,
-                        )
-                    )
             self.epoch = e + 1
             accelerator.save(self, save) if save else None
             logger.info(
@@ -632,47 +747,61 @@ class PerceptionKinematics(
                 )
             )
 
-    def encode(self, state, pixel):
-        def f_entry(self, entry):
-            value = tuple(
-                torch.unsqueeze(entry.position(self.spec, name), -1)
-                for name in entry.name
+        logger.info(
+            "[Train] ----- Dataset: (batch={}, image={}, label={}) - (epoch={}) - complete".format(
+                batch, image, label, epoch
             )
-            value = torch.concatenate(value, dim=-1)
-
-            value = torch.reshape(value, entry.batch + (1, -1))
-
-            return value
-
-        value = tuple(f_entry(self, entry) for entry in state)
-
-        value = torch.concatenate(value, dim=-2)
-
-        total = value.shape[-1] + pixel.shape[-1]
-
-        pixel = torch.concatenate(
-            (
-                torch.zeros(
-                    (pixel.shape[:-1] + tuple([total - pixel.shape[-1]])),
-                    dtype=pixel.dtype,
-                    device=pixel.device,
-                ),
-                pixel,
-            ),
-            dim=-1,
         )
-        value = torch.concatenate(
+
+    def encode(self, state, pose, start):
+        data = self.e_data(state)
+        mask = torch.ones(data.shape[:-1])
+        head = pose
+        return self.e_compose(head, data, mask)
+
+    def e_compose(self, head, data, mask):
+        mask = torch.concatenate(
             (
-                value,
-                torch.zeros(
-                    (value.shape[:-1] + tuple([total - value.shape[-1]])),
-                    dtype=value.dtype,
-                    device=value.device,
+                torch.ones(
+                    mask.shape[:-1] + tuple([head.shape[-2]]),
+                    dtype=mask.dtype,
+                    device=mask.device,
                 ),
+                mask,
             ),
             dim=-1,
         )
 
-        value = torch.concatenate((pixel, value), dim=-2)
+        total = data.shape[-1] + head.shape[-1]
+
+        head = torch.concatenate(
+            (
+                torch.zeros(
+                    (head.shape[:-1] + tuple([total - head.shape[-1]])),
+                    dtype=head.dtype,
+                    device=head.device,
+                ),
+                head,
+            ),
+            dim=-1,
+        )
+        data = torch.concatenate(
+            (
+                data,
+                torch.zeros(
+                    (data.shape[:-1] + tuple([total - data.shape[-1]])),
+                    dtype=data.dtype,
+                    device=data.device,
+                ),
+            ),
+            dim=-1,
+        )
+
+        data = torch.concatenate((head, data), dim=-2)
+
+        return data, mask
+
+    def e_data(self, state):
+        value = torch.stack(tuple(entry.data for entry in state), dim=-2)
 
         return value
