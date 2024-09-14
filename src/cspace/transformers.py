@@ -23,23 +23,36 @@ class Model(torch.nn.Module):
         self.input_embeddings = input_embeddings
         self.output_embeddings = output_embeddings
 
-    def forward(self, data):
-        batch = list(data.shape[:-2])
-
+    def batch(self, data, length):
         data = torch.reshape(data, [-1] + list(data.shape[-2:]))
 
-        data = list(
-            map(
-                lambda e: e.to(self.input_embeddings.weight.dtype).to(
-                    self.input_embeddings.weight.device
-                ),
-                data,
-            )
+        mask = torch.concatenate(
+            (
+                torch.ones((data.shape[0], data.shape[1])),
+                torch.zeros((data.shape[0], length - data.shape[1])),
+            ),
+            dim=-1,
         )
-        mask = list(map(lambda e: torch.ones(len(e), device=e.device), data))
 
-        data = torch.nn.utils.rnn.pad_sequence(data, batch_first=True)
-        mask = torch.nn.utils.rnn.pad_sequence(mask, batch_first=True)
+        data = torch.concatenate(
+            (
+                data,
+                torch.zeros(
+                    (data.shape[0], length - data.shape[1], data.shape[2]),
+                    dtype=data.dtype,
+                    device=data.device,
+                ),
+            ),
+            dim=-2,
+        )
+
+        return data, mask
+
+    def forward(self, data, mask):
+        data = data.to(self.input_embeddings.weight.dtype)
+        data = data.to(self.input_embeddings.weight.device)
+        mask = mask.to(self.input_embeddings.weight.device)
+
         data = self.transformer(
             inputs_embeds=self.input_embeddings(data),
             attention_mask=mask,
@@ -50,9 +63,6 @@ class Model(torch.nn.Module):
         )
 
         data = self.output_embeddings(data)
-
-        data = torch.reshape(data, batch + list(data.shape[-1:]))
-
         return data
 
 
@@ -142,6 +152,34 @@ class InverseDataset(torch.utils.data.Dataset):
         scale = torch.cumsum(scale, dim=-2)
 
         scale = scale % 2.0  # (0.0, 1.0)
+
+        state = tuple(
+            cspace.torch.classes.JointStateCollection.apply(
+                self.spec,
+                self.joint,
+                torch.select(scale, dim=-2, index=step),
+                min=0.0,
+                max=1.0,
+            )
+            for step in range(length)
+        )
+        pose = cspace.torch.classes.JointStateCollection.apply(
+            spec,
+            joint,
+            torch.select(scale, dim=-2, index=length),
+            min=0.0,
+            max=1.0,
+        ).forward(spec, *link, base=base)
+
+        pose = self.forward(
+            cspace.torch.classes.JointStateCollection.apply(
+                self.spec,
+                self.joint,
+                torch.select(scale, dim=-2, index=length),
+                min=0.0,
+                max=1.0,
+            )
+        )
 
         self.scale = scale
         self.index = index
@@ -324,25 +362,6 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
 
                 loss_count, loss_total = 0, 0
                 for index, (scale, true, delta) in enumerate(dataloader):
-                    state = tuple(
-                        cspace.torch.classes.JointStateCollection.apply(
-                            self.spec,
-                            self.joint,
-                            torch.select(scale, dim=-2, index=step),
-                            min=0.0,
-                            max=1.0,
-                        )
-                        for step in range(self.length)
-                    )
-                    pose = self.forward(
-                        cspace.torch.classes.JointStateCollection.apply(
-                            self.spec,
-                            self.joint,
-                            torch.select(scale, dim=-2, index=self.length),
-                            min=0.0,
-                            max=1.0,
-                        )
-                    )
                     for step in range(self.length):
                         data = self.encode(state[0 : step + 1], pose, delta)
                         pred = model(data)
