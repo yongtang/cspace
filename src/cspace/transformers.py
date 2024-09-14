@@ -61,41 +61,30 @@ class JointStateEncoding:
         pred = torch.unflatten(pred, -1, (self.bucket, -1))
         assert pred.shape[-2:] == (self.bucket, len(self.joint))
 
+        prod = self.prod[len(state) - 1]
+
         index = choice(pred)
 
-        prod = torch.cumprod(
-            torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand([len(state)]),
-            dim=0,
-        )[-1]
-        zero = prod * self.bucket / 2.0
-
-        scale = (
-            state[-1].scale(self.spec, min=-1.0, max=1.0)
-            + torch.sub(torch.add(torch.multiply(index, prod), prod / 2), zero) * 2.0
-        )  # (-1.0, 1.0)
+        scale = state[-1].scale(self.spec, min=0.0, max=1.0)
+        scale = scale + torch.multiply(index, prod)
+        scale = scale % 1.0
 
         state = cspace.torch.classes.JointStateCollection.apply(
-            self.spec, self.joint, scale, min=-1.0, max=1.0
+            self.spec, self.joint, scale, min=0.0, max=1.0
         )
         return state
 
     def bucketize(self, state):
-        value = state.scale(spec=self.spec, min=-1.0, max=1.0)
-
-        prod, zero = self.chunk["prod"].to(value.device), self.chunk["zero"].to(
-            value.device
-        )
+        value = state.scale(spec=self.spec, min=0.0, max=1.0)
 
         true = []
-        for step in range(self.length):
-            entry = torch.bucketize(value, prod[step])
-            value = value - zero[step][entry]
-            true.append(entry)
-
         scale = [torch.zeros_like(value)]
-        for step in range(self.length - 1):
-            entry = scale[-1] + zero[step][true[step]]
-            scale.append(entry)
+        for step in range(self.length):
+            entry = value // self.prod[step]
+            value = value % self.prod[step]
+            true.append(entry)
+            scale.append(entry * self.prod[step])
+        scale = scale[:-1]
 
         true = torch.stack(true, dim=-2)
         scale = torch.stack(scale, dim=-2)
@@ -105,77 +94,58 @@ class JointStateEncoding:
                 self.spec,
                 self.joint,
                 torch.select(scale, dim=-2, index=step),
-                min=-1.0,
+                min=0.0,
                 max=1.0,
             )
             for step in range(self.length)
         )
+        true = true.to(torch.int64)
         return state, true
 
     @functools.cached_property
-    def chunk(self):
-        prod = (
-            torch.cumprod(
-                torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand(
-                    [self.length, 1]
-                ),
-                dim=-2,
-            )
-            * self.bucket
+    def prod(self):
+        return torch.cumprod(
+            torch.tensor(1.0 / self.bucket, dtype=torch.float64).expand([self.length]),
+            dim=0,
         )
-
-        zero = prod.expand(self.length, self.bucket) * torch.linspace(
-            start=-1.0 + 1.0 / self.bucket,
-            end=1.0 - 1.0 / self.bucket,
-            steps=self.bucket,
-            dtype=torch.float64,
-        ).expand(self.length, self.bucket)
-
-        prod = prod.expand(self.length, self.bucket - 1) * torch.linspace(
-            start=-1.0 + 2.0 / self.bucket,
-            end=1.0 - 2.0 / self.bucket,
-            steps=self.bucket - 1,
-            dtype=torch.float64,
-        ).expand(self.length, self.bucket - 1)
-
-        return {"prod": prod, "zero": zero}
 
 
 class InverseDataset(torch.utils.data.Dataset):
     def __init__(self, joint, link, bucket, length, total, noise=None):
         total = total if noise is None else (noise * total)
 
-        self.index = torch.randint(
+        index = torch.randint(
             low=0, high=bucket, size=(total, length, len(joint)), dtype=torch.int64
         )
         if not noise:
-            self.noise = torch.zeros((total, len(link), 6), dtype=torch.float64)
+            noise = torch.zeros((total, len(link), 6), dtype=torch.float64)
         else:
             std = torch.tensor(0.01, dtype=torch.float64).expand(total, len(link), 6)
             mean = torch.tensor(0.0, dtype=torch.float64).expand(total, len(link), 6)
-            self.noise = torch.normal(mean, std)
+            noise = torch.normal(mean, std)
 
         prod = torch.cumprod(
             torch.tensor(1.0 / bucket, dtype=torch.float64).expand([1, length, 1]),
             dim=-2,
         )
-        zero = prod * bucket / 2.0
 
-        self.scale = torch.sub(
-            torch.add(torch.multiply(self.index, prod), prod / 2), zero
-        )
+        scale = torch.multiply(index, prod)
 
-        self.scale = torch.concatenate(
+        scale = torch.concatenate(
             (
                 torch.zeros((total, 1, len(joint)), dtype=torch.float64),
-                self.scale,
+                scale,
             ),
             dim=-2,
         )
 
-        self.scale = torch.cumsum(self.scale, dim=-2)  # (-0.5, 0.5)
+        scale = torch.cumsum(scale, dim=-2)
 
-        self.scale = self.scale * 2.0  # (-1.0, 1.0)
+        scale = scale % 2.0  # (0.0, 1.0)
+
+        self.scale = scale
+        self.index = index
+        self.noise = noise
 
     def __len__(self):
         return self.scale.shape[0]
@@ -287,7 +257,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 self.spec,
                 self.joint,
                 torch.zeros_like(state.data),
-                min=-1.0,
+                min=0.0,
                 max=1.0,
             )
 
@@ -360,7 +330,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                         self.spec,
                         self.joint,
                         torch.select(scale, dim=-2, index=step),
-                        min=-1.0,
+                        min=0.0,
                         max=1.0,
                     )
                     for step in range(self.length)
@@ -370,7 +340,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                         self.spec,
                         self.joint,
                         torch.select(scale, dim=-2, index=self.length),
-                        min=-1.0,
+                        min=0.0,
                         max=1.0,
                     )
                 )
@@ -533,7 +503,7 @@ class PerceptionKinematics(
                 torch.zeros(
                     batch + tuple([len(self.joint)]), device=observation.device
                 ),
-                min=-1.0,
+                min=0.0,
                 max=1.0,
             )
 
