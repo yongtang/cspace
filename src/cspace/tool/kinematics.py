@@ -132,7 +132,7 @@ def main():
                         pose.batch + tuple([len(kinematics.joint)]),
                         device=torch.device(args.device),
                     ),
-                    min=-1.0,
+                    min=0.0,
                     max=1.0,
                 )
                 mark = kinematics.forward(zero)
@@ -279,7 +279,7 @@ def main():
                         pred.batch + tuple([len(kinematics.joint)]),
                         device=torch.device(args.device),
                     ),
-                    min=-1.0,
+                    min=0.0,
                     max=1.0,
                 )
                 mark = kinematics.forward(zero)
