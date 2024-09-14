@@ -103,17 +103,18 @@ def test_kinematics_inverse(
         length=length,
     )
 
-    kinematics.train(
-        logger=logger,
-        accelerator=accelerator,
-        total=total,
-        save=saved,
-        batch=batch,
-        epoch=epoch,
-        noise=noise,
-    )
+    for i in range(2):
+        kinematics.train(
+            logger=logger,
+            accelerator=accelerator,
+            total=total,
+            noise=noise,
+            save=saved,
+            batch=batch,
+            epoch=epoch * (i + 1),
+        )
 
-    kinematics = torch.load(saved, map_location=torch.device(device))
+        kinematics = torch.load(saved, map_location=torch.device(device))
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
@@ -277,17 +278,18 @@ def test_kinematics_perception(
             dict(zip(joint_state_tutorial.name, joint_state_tutorial.position)), f
         )
 
-    kinematics.train(
-        logger=logger,
-        accelerator=accelerator,
-        image=image,
-        label=label,
-        save=saved,
-        batch=batch,
-        epoch=epoch,
-    )
+    for i in range(2):
+        kinematics.train(
+            logger=logger,
+            accelerator=accelerator,
+            image=image,
+            label=label,
+            save=saved,
+            batch=batch,
+            epoch=epoch * (i + 1),
+        )
 
-    kinematics = torch.load(saved, map_location=torch.device(device))
+        kinematics = torch.load(saved, map_location=torch.device(device))
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
