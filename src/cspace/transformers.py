@@ -212,7 +212,6 @@ class InverseDataset(torch.utils.data.Dataset):
         self.true = torch.concatenate(
             list(f_true(entry, length, index) for entry in entries), dim=0
         )
-        print("XXX - ", self.data.shape, self.mask.shape, self.true.shape, self.mask)
 
     def __len__(self):
         return self.data.shape[0]
@@ -342,7 +341,9 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             for step in range(self.length):
                 data = self.encode(*f_encode(pose, zero, processed))
 
-                pred = self.model(data)
+                pred = self.model(*self.model.batch(data, self.length))
+
+                pred = torch.reshape(pred, data.shape[:-2] + pred.shape[-1:])
 
                 processed.append(self.decode(*f_decode(pred, zero, processed, choice)))
 
@@ -381,6 +382,8 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                     total=total,
                     noise=noise,
                 )
+
+                assert len(dataset) == self.length * total * (noise if noise else 1)
                 dataloader = torch.utils.data.DataLoader(
                     dataset,
                     batch_size=batch,
@@ -393,22 +396,20 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 model.train()
 
                 loss_count, loss_total = 0, 0
-                for index, (scale, true, delta) in enumerate(dataloader):
-                    for step in range(self.length):
-                        data = self.encode(state[0 : step + 1], pose, delta)
-                        pred = model(data)
-                        loss = self.loss_fn(
-                            torch.unflatten(pred, -1, (self.bucket, -1)),
-                            torch.select(true, dim=-2, index=step),
-                        )
-                        accelerator.backward(loss)
-                        optimizer.step()
-                        scheduler.step()
-                        optimizer.zero_grad()
-                        loss = accelerator.gather_for_metrics(loss)
-                        pred = accelerator.gather_for_metrics(pred)
-                        loss_total += loss.sum().item()
-                        loss_count += len(pred)
+                for index, (data, mask, true) in enumerate(dataloader):
+                    pred = model(data, mask)
+                    loss = self.loss_fn(
+                        torch.unflatten(pred, -1, (self.bucket, -1)),
+                        true,
+                    )
+                    accelerator.backward(loss)
+                    optimizer.step()
+                    scheduler.step()
+                    optimizer.zero_grad()
+                    loss = accelerator.gather_for_metrics(loss)
+                    pred = accelerator.gather_for_metrics(pred)
+                    loss_total += loss.sum().item()
+                    loss_count += len(pred)
                     logger.info(
                         "[Train] ----- Dataset: (batch={}, total={}, noise={}) - (epoch={}/{}) - {}/{} - Loss: {}".format(
                             batch,
