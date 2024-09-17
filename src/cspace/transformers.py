@@ -74,10 +74,11 @@ class JointStateEncoding:
         index = []
         scale = [torch.zeros_like(value)]
         for step in range(self.length):
-            entry = value // self.prod[step]
-            value = value % self.prod[step]
+            chunk = self.prod[step].to(value.device)
+            entry = value // chunk
+            value = value % chunk
             index.append(entry)
-            scale.append(entry * self.prod[step])
+            scale.append(entry * chunk)
         scale = scale[:-1]
 
         index = torch.stack(index, dim=-2)
