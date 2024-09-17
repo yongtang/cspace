@@ -89,7 +89,7 @@ def test_kinematics_inverse(
 ):
     saved = pathlib.Path.joinpath(
         tmp_path_factory.mktemp("model"),
-        f"{request.node.name}-{request.node.callspec.id}.pth",
+        f"{str(hash(request.node.name + request.node.callspec.id))}.pth",
     )
 
     accelerator = accelerate.Accelerator()
@@ -103,18 +103,41 @@ def test_kinematics_inverse(
         length=length,
     )
 
-    for i in range(2):
-        kinematics.train(
-            logger=logger,
-            accelerator=accelerator,
-            total=total,
-            noise=noise,
-            save=saved,
-            batch=batch,
-            epoch=epoch * (i + 1),
-        )
+    kinematics.train(
+        logger=logger,
+        accelerator=accelerator,
+        total=total,
+        noise=noise,
+        save=saved,
+        batch=batch,
+        start=epoch * 0,
+        limit=epoch * 1,
+    )
 
-        kinematics = torch.load(saved, map_location=torch.device(device))
+    accelerator = accelerate.Accelerator()
+    logger = accelerate.logging.get_logger(__name__, log_level="INFO")
+
+    kinematics = torch.load(
+        pathlib.Path(saved).joinpath("kinematics.pth"),
+        map_location=torch.device(device),
+    )
+
+    kinematics.train(
+        logger=logger,
+        accelerator=accelerator,
+        total=total,
+        noise=noise,
+        load=saved,
+        save=saved,
+        batch=batch,
+        start=epoch * 1,
+        limit=epoch * 2,
+    )
+
+    kinematics = torch.load(
+        pathlib.Path(saved).joinpath("kinematics.pth"),
+        map_location=torch.device(device),
+    )
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)
@@ -278,18 +301,41 @@ def test_kinematics_perception(
             dict(zip(joint_state_tutorial.name, joint_state_tutorial.position)), f
         )
 
-    for i in range(2):
-        kinematics.train(
-            logger=logger,
-            accelerator=accelerator,
-            image=image,
-            label=label,
-            save=saved,
-            batch=batch,
-            epoch=epoch * (i + 1),
-        )
+    kinematics.train(
+        logger=logger,
+        accelerator=accelerator,
+        image=image,
+        label=label,
+        save=saved,
+        batch=batch,
+        start=epoch * 0,
+        limit=epoch * 1,
+    )
 
-        kinematics = torch.load(saved, map_location=torch.device(device))
+    accelerator = accelerate.Accelerator()
+    logger = accelerate.logging.get_logger(__name__, log_level="INFO")
+
+    kinematics = torch.load(
+        pathlib.Path(saved).joinpath("kinematics.pth"),
+        map_location=torch.device(device),
+    )
+
+    kinematics.train(
+        logger=logger,
+        accelerator=accelerator,
+        image=image,
+        label=label,
+        load=saved,
+        save=saved,
+        batch=batch,
+        start=epoch * 1,
+        limit=epoch * 2,
+    )
+
+    kinematics = torch.load(
+        pathlib.Path(saved).joinpath("kinematics.pth"),
+        map_location=torch.device(device),
+    )
 
     joint_state_tutorial = dict(
         zip(joint_state_tutorial.name, joint_state_tutorial.position)

@@ -64,7 +64,8 @@ def main():
             parser.add_argument("--noise", dest="noise", type=int, default=None)
 
             parser.add_argument("--batch", dest="batch", type=int, default=None)
-            parser.add_argument("--epoch", dest="epoch", type=int, default=None)
+            parser.add_argument("--epoch-start", dest="start", type=int, default=None)
+            parser.add_argument("--epoch-limit", dest="limit", type=int, default=None)
             load = parser.parse_known_args()[0].load
 
             if not load:
@@ -82,7 +83,8 @@ def main():
             parser.add_argument("--label", dest="label", type=str, default=None)
 
             parser.add_argument("--batch", dest="batch", type=int, default=None)
-            parser.add_argument("--epoch", dest="epoch", type=int, default=None)
+            parser.add_argument("--epoch-start", dest="start", type=int, default=None)
+            parser.add_argument("--epoch-limit", dest="limit", type=int, default=None)
             load = parser.parse_known_args()[0].load
 
             if not load:
@@ -348,7 +350,7 @@ def main():
     else:
         if func == "inverse":
             kinematics = (
-                torch.load(args.load)
+                torch.load(pathlib.Path(args.load).joinpath("kinematics.pth"))
                 if args.load
                 else cspace.transformers.InverseKinematics(
                     pathlib.Path(args.urdf).read_text(),
@@ -362,9 +364,11 @@ def main():
                 logger=logger,
                 accelerator=accelerator,
                 total=args.total,
+                load=args.load,
                 save=args.save,
                 batch=args.batch,
-                epoch=args.epoch,
+                start=args.start,
+                limit=args.limit,
             )
         else:
             kinematics = (
@@ -383,9 +387,11 @@ def main():
                 accelerator=accelerator,
                 image=args.image,
                 label=args.label,
+                load=args.load,
                 save=args.save,
                 batch=args.batch,
-                epoch=args.epoch,
+                start=args.start,
+                limit=args.limit,
             )
 
 
