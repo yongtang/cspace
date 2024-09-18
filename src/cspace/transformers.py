@@ -442,7 +442,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                     )
                 )
 
-            accelerator.save_state(save) if save else None
+            accelerator.save_state(save, safe_serialization=False) if save else None
             (
                 accelerator.save(self, pathlib.Path(save).joinpath("kinematics.pth"))
                 if save
@@ -742,7 +742,7 @@ class PerceptionKinematics(
                         loss_total / loss_count,
                     )
                 )
-            accelerator.save_state(save) if save else None
+            accelerator.save_state(save, safe_serialization=False) if save else None
             (
                 accelerator.save(self, pathlib.Path(save).joinpath("kinematics.pth"))
                 if save
