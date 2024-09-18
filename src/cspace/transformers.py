@@ -188,7 +188,12 @@ class InverseDataset(MaskDataset):
 
         scale = scale % 1.0  # (0.0, 1.0)
 
-        start = torch.rand(total, len(joint), dtype=scale.dtype, device=scale.device)
+        start = torch.rand(
+            total,
+            len(joint),
+            dtype=scale.dtype,
+            device=scale.device,
+        )  # start position for reference
 
         state = tuple(
             cspace.torch.classes.JointStateCollection.apply(
@@ -226,9 +231,11 @@ class InverseDataset(MaskDataset):
             ],
             pose,
             None,
-        )
+        )  # start position relative to pose
 
-        self.start = torch.concatenate(list(start for step in range(length)), dim=0)
+        self.start = torch.concatenate(
+            list(start for step in range(length)), dim=0
+        )  # repeat start to match bucketized state
 
     def head(self, key):
         return self.start[key]
@@ -469,6 +476,8 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
         return self.e_compose(head, data, mask)
 
     def e_compose(self, head, data, mask):
+        """
+        # start position does not have an impact
         mask = torch.concatenate(
             (
                 torch.ones(
@@ -481,6 +490,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             dim=-1,
         )
         data = torch.concatenate((head, data), dim=-2)
+        """
 
         return data, mask
 
