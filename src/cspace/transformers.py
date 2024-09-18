@@ -476,21 +476,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
         return self.e_compose(head, data, mask)
 
     def e_compose(self, head, data, mask):
-        """
-        # start position does not have an impact
-        mask = torch.concatenate(
-            (
-                torch.ones(
-                    mask.shape[:-1] + tuple([head.shape[-2]]),
-                    dtype=mask.dtype,
-                    device=mask.device,
-                ),
-                mask,
-            ),
-            dim=-1,
-        )
-        data = torch.concatenate((head, data), dim=-2)
-        """
+        # start position does not have an impact - skip
 
         return data, mask
 
