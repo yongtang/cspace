@@ -262,8 +262,8 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             self.model = Model(transformer, input_embeddings, output_embeddings)
 
     def inverse(self, pose, state, repeat=None):
-        def f_encode(pose, zero, processed):
-            return [zero] + processed, pose, zero  # start
+        def f_encode(pose, zero, processed, start):
+            return [zero] + processed, pose, start
 
         def f_decode(pred, zero, processed, choice):
             return [zero] + processed, pred, choice
@@ -340,10 +340,11 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                 min=0.0,
                 max=1.0,
             )
+            start = state  # inverse kinematics start position as extra information
 
             processed = []
             for step in range(self.length):
-                data, mask = self.encode(*f_encode(pose, zero, processed))
+                data, mask = self.encode(*f_encode(pose, zero, processed, start))
 
                 pred = self.model(data, mask)
 
@@ -468,18 +469,18 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
         return self.e_compose(head, data, mask)
 
     def e_compose(self, head, data, mask):
-        # mask = torch.concatenate(
-        #    (
-        #        torch.ones(
-        #            mask.shape[:-1] + tuple([head.shape[-2]]),
-        #            dtype=mask.dtype,
-        #            device=mask.device,
-        #        ),
-        #        mask,
-        #    ),
-        #    dim=-1,
-        # )
-        # data = torch.concatenate((head, data), dim=-2)
+        mask = torch.concatenate(
+            (
+                torch.ones(
+                    mask.shape[:-1] + tuple([head.shape[-2]]),
+                    dtype=mask.dtype,
+                    device=mask.device,
+                ),
+                mask,
+            ),
+            dim=-1,
+        )
+        data = torch.concatenate((head, data), dim=-2)
 
         return data, mask
 
@@ -597,8 +598,8 @@ class PerceptionKinematics(
             self.model = Model(transformer, input_embeddings, output_embeddings)
 
     def perception(self, observation):
-        def f_encode(pose, zero, processed):
-            return [zero] + processed, pose, zero  # start
+        def f_encode(pose, zero, processed, start):
+            return [zero] + processed, pose, start
 
         def f_decode(pred, zero, processed, choice):
             return [zero] + processed, pred, choice
@@ -625,10 +626,11 @@ class PerceptionKinematics(
                 min=0.0,
                 max=1.0,
             )
+            start = zero  # percepton kinematics irrelevant on start position
 
             processed = []
             for step in range(self.length):
-                data, mask = self.encode(*f_encode(pose, zero, processed))
+                data, mask = self.encode(*f_encode(pose, zero, processed, start))
 
                 pred = self.model(data, mask)
 
