@@ -61,8 +61,6 @@ def main():
 
             parser.add_argument("--total", dest="total", type=int, default=None)
 
-            parser.add_argument("--noise", dest="noise", type=int, default=None)
-
             parser.add_argument("--batch", dest="batch", type=int, default=None)
             parser.add_argument("--epoch-start", dest="start", type=int, default=None)
             parser.add_argument("--epoch-limit", dest="limit", type=int, default=None)
@@ -79,8 +77,7 @@ def main():
             parser.add_argument("--save", dest="save", type=str, required=True)
             parser.add_argument("--load", dest="load", type=str, default=None)
 
-            parser.add_argument("--image", dest="image", type=str, default=None)
-            parser.add_argument("--label", dest="label", type=str, default=None)
+            parser.add_argument("--total", dest="total", type=total, default=None)
 
             parser.add_argument("--batch", dest="batch", type=int, default=None)
             parser.add_argument("--epoch-start", dest="start", type=int, default=None)
@@ -371,6 +368,9 @@ def main():
                 limit=args.limit,
             )
         else:
+            with pathlib.Path(total).open() as f:
+                total = list(entry.strip() for entry in f)
+
             kinematics = (
                 torch.load(args.load)
                 if args.load
@@ -385,8 +385,7 @@ def main():
             kinematics.train(
                 logger=logger,
                 accelerator=accelerator,
-                image=args.image,
-                label=args.label,
+                total=total,
                 load=args.load,
                 save=args.save,
                 batch=args.batch,

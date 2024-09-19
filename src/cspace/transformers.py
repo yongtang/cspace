@@ -365,12 +365,12 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
         logger,
         accelerator,
         total,
-        noise=None,
         load=None,
         save=None,
         batch=None,
         start=None,
         limit=None,
+        noise=None,
     ):
         batch = batch if batch is not None else 128
         start = start if start is not None else 0
@@ -445,7 +445,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
                         noise,
                         epoch,
                         loss_count,
-                        total * (noise if noise else 1) * self.length,
+                        len(dataset),
                         loss_total / loss_count,
                     )
                 )
@@ -513,21 +513,7 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
 
 
 class PerceptionDataset(MaskDataset):
-    def __init__(
-        self, /, spec, joint, length, bucketize, function, e_data, image, label
-    ):
-        def f(entry):
-            entries = list(
-                pathlib.Path(image).glob(
-                    str(entry.relative_to(label)).removesuffix(".json") + ".*"
-                )
-            )
-            entries = list(
-                (file, entry)
-                for file in entries
-                if file.suffix in (".png", ".jpg", ".jpeg", ".bmp")
-            )
-            return next(iter(entries), None)
+    def __init__(self, /, spec, joint, length, bucketize, function, e_data, total):
 
         def f_value(entry):
             with open(entry) as f:
@@ -537,9 +523,14 @@ class PerceptionDataset(MaskDataset):
             )
             return entry
 
-        entries = list(f(entry) for entry in pathlib.Path(label).rglob("*.json"))
+        with pathlib.Path(total).open() as f:
+            entries = list(entry.strip() for entry in f)
         entries = list(entry for entry in entries if entry)
+        entries = list(entry.split(",") for entry in entries)
+
         image, label = list(zip(*entries))
+        image = list(entry.strip() for entry in image)
+        label = list(entry.strip() for entry in label)
 
         value = torch.stack(list(f_value(entry) for entry in label), dim=0)
 
@@ -650,8 +641,7 @@ class PerceptionKinematics(
         *,
         logger,
         accelerator,
-        image,
-        label,
+        total,
         load=None,
         save=None,
         batch=None,
@@ -660,10 +650,11 @@ class PerceptionKinematics(
     ):
         batch = batch if batch is not None else 128
         start = start if start is not None else 0
+        limit = limit if limit is not None else len(total)
 
         logger.info(
-            "[Train] ----- Dataset: (batch={}, image={}, label={}) - (start={}, limit={}) - creation".format(
-                batch, image, label, start, limit
+            "[Train] ----- Dataset: (batch={}) - (start={}, limit={}) - creation".format(
+                batch, start, limit
             )
         )
 
@@ -676,39 +667,34 @@ class PerceptionKinematics(
                 ),
             ]
         )
-        dataset = cspace.transformers.PerceptionDataset(
-            spec=self.spec,
-            joint=self.joint,
-            length=self.length,
-            bucketize=self.bucketize,
-            function=self.image,
-            e_data=self.e_data,
-            image=image,
-            label=label,
-        )
-        dataloader = torch.utils.data.DataLoader(
-            dataset,
-            batch_size=batch,
-            shuffle=True,
-        )
-        model, optimizer, scheduler, dataloader, vision = accelerator.prepare(
-            self.model, optimizer, scheduler, dataloader, self.vision
+        model, optimizer, scheduler, vision = accelerator.prepare(
+            self.model, optimizer, scheduler, self.vision
         )
         accelerator.load_state(load) if load else None
 
-        logger.info(
-            "[Train] ----- Dataset: (batch={}, image={}, label={}) - (start={}, limit={}) - (total={})".format(
-                batch, image, label, start, limit, len(dataset)
-            )
-        )
-
         model.train(), vision.eval()
-        for epoch in itertools.count(start) if limit is None else range(start, limit):
+        for epoch in range(start, limit):
             logger.info(
-                "[Train] ----- Dataset: (batch={}, image={}, label={}) - (epoch={}) - creation".format(
-                    batch, image, label, epoch
+                "[Train] ----- Dataset: (batch={}) - (epoch={}, entry={}) - creation".format(
+                    batch, epoch, total[epoch]
                 )
             )
+
+            dataset = cspace.transformers.PerceptionDataset(
+                spec=self.spec,
+                joint=self.joint,
+                length=self.length,
+                bucketize=self.bucketize,
+                function=self.image,
+                e_data=self.e_data,
+                total=total[epoch],
+            )
+            dataloader = torch.utils.data.DataLoader(
+                dataset,
+                batch_size=batch,
+                shuffle=True,
+            )
+            dataloader = accelerator.prepare(dataloader)
 
             loss_total, loss_count = 0, 0
             for index, (head, data, mask, true) in enumerate(dataloader):
@@ -730,13 +716,12 @@ class PerceptionKinematics(
                 loss_total += loss.sum().item()
                 loss_count += len(pred)
                 logger.info(
-                    "[Train] ----- Dataset: (batch={}, imagel={}, label={}) - (epoch={}) - {}/{} - Loss: {}".format(
+                    "[Train] ----- Dataset: (batch={}) - (epoch={}, entry={}) - {}/{} - Loss: {}".format(
                         batch,
-                        image,
-                        label,
                         epoch,
+                        total[epoch],
                         loss_count,
-                        len(dataset) * self.length,
+                        len(dataset),
                         loss_total / loss_count,
                     )
                 )
@@ -747,14 +732,14 @@ class PerceptionKinematics(
                 else None
             )
             logger.info(
-                "[Train] ----- Dataset: (batch={}, image={}, label={}) - (epoch={}) - complete".format(
-                    batch, image, label, epoch
+                "[Train] ----- Dataset: (batch={}) - (epoch={}, entry={}) - complete".format(
+                    batch, epoch, total[epoch]
                 )
             )
 
         logger.info(
-            "[Train] ----- Dataset: (batch={}, image={}, label={}) - (start={}, limit={}) - complete".format(
-                batch, image, label, start, limit
+            "[Train] ----- Dataset: (batch={}) - (start={}, limit={}) - complete".format(
+                batch, start, limit
             )
         )
 

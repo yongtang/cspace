@@ -3,6 +3,9 @@ import pytest
 import cspace.transformers
 
 import accelerate
+import itertools
+import itertools
+import itertools
 import pathlib
 import shutil
 import json
@@ -107,11 +110,11 @@ def test_kinematics_inverse(
         logger=logger,
         accelerator=accelerator,
         total=total,
-        noise=noise,
         save=saved,
         batch=batch,
         start=epoch * 0,
         limit=epoch * 1,
+        noise=noise,
     )
 
     accelerator = accelerate.Accelerator()
@@ -126,12 +129,12 @@ def test_kinematics_inverse(
         logger=logger,
         accelerator=accelerator,
         total=total,
-        noise=noise,
         load=saved,
         save=saved,
         batch=batch,
         start=epoch * 1,
         limit=epoch * 2,
+        noise=noise,
     )
 
     kinematics = torch.load(
@@ -301,11 +304,21 @@ def test_kinematics_perception(
             dict(zip(joint_state_tutorial.name, joint_state_tutorial.position)), f
         )
 
+    index = tmp_path_factory.mktemp(
+        "index-" + str(hash(request.node.name + request.node.callspec.id))
+    )
+    content = f"""
+    {pathlib.Path.joinpath(image, "1.png")},{pathlib.Path.joinpath(label, "1.json")}
+    {pathlib.Path.joinpath(image, "2.png")},{pathlib.Path.joinpath(label, "2.json")}
+    """
+    pathlib.Path.joinpath(index, "index.csv").write_text(content)
+
+    total = list(itertools.repeat(pathlib.Path.joinpath(index, "index.csv"), 10))
+
     kinematics.train(
         logger=logger,
         accelerator=accelerator,
-        image=image,
-        label=label,
+        total=total,
         save=saved,
         batch=batch,
         start=epoch * 0,
@@ -323,8 +336,7 @@ def test_kinematics_perception(
     kinematics.train(
         logger=logger,
         accelerator=accelerator,
-        image=image,
-        label=label,
+        total=total,
         load=saved,
         save=saved,
         batch=batch,
