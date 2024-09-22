@@ -368,7 +368,7 @@ def main():
                 limit=args.limit,
             )
         else:
-            with pathlib.Path(total).open() as f:
+            with pathlib.Path(args.total).open() as f:
                 total = list(entry.strip() for entry in f)
 
             kinematics = (
