@@ -77,7 +77,7 @@ def main():
             parser.add_argument("--save", dest="save", type=str, required=True)
             parser.add_argument("--load", dest="load", type=str, default=None)
 
-            parser.add_argument("--total", dest="total", type=total, default=None)
+            parser.add_argument("--total", dest="total", type=str, default=None)
 
             parser.add_argument("--batch", dest="batch", type=int, default=None)
             parser.add_argument("--epoch-start", dest="start", type=int, default=None)
