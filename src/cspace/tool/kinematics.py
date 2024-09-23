@@ -372,7 +372,7 @@ def main():
                 total = list(entry.strip() for entry in f)
 
             kinematics = (
-                torch.load(args.load)
+                torch.load(pathlib.Path(args.load).joinpath("kinematics.pth"))
                 if args.load
                 else cspace.transformers.PerceptionKinematics(
                     pathlib.Path(args.urdf).read_text(),
