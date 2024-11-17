@@ -225,6 +225,9 @@ class Attribute:
             object.__setattr__(self, "limit", limit)
 
             axis = (1, 0, 0) if joint == "fixed" else axis
+            # float => int (safe)
+            axis = tuple(float(item) for item in axis)
+            assert all(item % 1 == 0 for item in axis)
             axis = tuple(int(item) for item in axis)
             assert len(axis) == 3
             sign = tuple(item for item in axis if item)
