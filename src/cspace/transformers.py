@@ -293,9 +293,15 @@ class InverseKinematics(cspace.torch.classes.InverseKinematics, JointStateEncodi
             )
 
             selection = torch.min(loss, dim=0)
-            selection = torch.reshape(selection.indices, [-1])
+            selection = selection.indices
+            selection = torch.reshape(selection, [-1])
 
-            position = torch.select(final.data, dim=0, index=selection)
+            shape = final.data.shape[1:]
+
+            data = torch.flatten(final.data.unsqueeze(1), 1, -2)
+
+            position = data[selection, torch.arange(torch.numel(selection)), ...]
+            position = torch.reshape(position, shape)
 
             return cspace.torch.classes.JointStateCollection(
                 self.spec, final.name, position
