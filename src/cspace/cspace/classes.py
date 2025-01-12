@@ -402,14 +402,15 @@ class Spec:
 
             lower, upper = (lower, upper) if (lower < upper) else (upper, lower)
 
-            assert lower >= (
-                joint(f_attribute(e, "name")).motion.zero
-                - joint(f_attribute(e, "name")).motion.limit
-            )
-            assert upper <= (
-                joint(f_attribute(e, "name")).motion.zero
-                + joint(f_attribute(e, "name")).motion.limit
-            )
+            # Limit on certain URDF may not be consistent
+            # assert lower >= (
+            #    joint(f_attribute(e, "name")).motion.zero
+            #    - joint(f_attribute(e, "name")).motion.limit
+            # )
+            # assert upper <= (
+            #    joint(f_attribute(e, "name")).motion.zero
+            #    + joint(f_attribute(e, "name")).motion.limit
+            # )
 
             return Mimic(
                 joint=entries.item(0).getAttribute("joint"),
