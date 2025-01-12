@@ -249,7 +249,7 @@ def test_spec(device, urdf_file_tutorial):
             assert joint_route == spec.route(source, target)
 
 
-def test_spec(device, urdf_file_panda):
+def test_spec_mimic(device, urdf_file_panda):
     spec = cspace.cspace.classes.Spec(
         description=pathlib.Path(urdf_file_panda).read_text()
     )
